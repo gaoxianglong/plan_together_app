@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import '../../theme/app_colors.dart';
 import '../../services/auth_service.dart';
 import '../../services/audio_service.dart';
@@ -54,6 +55,8 @@ class _LoginPageState extends State<LoginPage> {
     if (!mounted) return;
 
     if (result.isSuccess) {
+      // 登录成功，开启会话状态轮询
+      AuthService.instance.startSessionPolling();
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(builder: (_) => const MainPage()),
       );
@@ -78,122 +81,316 @@ class _LoginPageState extends State<LoginPage> {
     
     showDialog(
       context: context,
+      builder: (dialogContext) {
+        bool isLoading = false;
+        String? errorMessage;
+        
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return Dialog(
+              backgroundColor: AppColors.cardBackground,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // 标题行 + X 按钮
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            tr('retrieve_password'),
+                            style: const TextStyle(
+                              fontSize: 16,
+                              color: AppColors.primary,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                        GestureDetector(
+                          onTap: () {
+                            AudioService.instance.playButton();
+                            Navigator.of(dialogContext).pop();
+                          },
+                          child: Container(
+                            width: 28,
+                            height: 28,
+                            decoration: BoxDecoration(
+                              color: AppColors.primaryLight.withValues(alpha: 0.3),
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(
+                              Icons.close,
+                              size: 16,
+                              color: AppColors.primary,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      tr('enter_email_reset'),
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    // 错误提示
+                    if (errorMessage != null) ...[
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: AppColors.error.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.error_outline, color: AppColors.error, size: 14),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                errorMessage!,
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  color: AppColors.error,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                    ],
+                    // 邮箱输入框
+                    Container(
+                      decoration: BoxDecoration(
+                        color: AppColors.background,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: errorMessage != null 
+                              ? AppColors.error.withValues(alpha: 0.5)
+                              : AppColors.primaryLight.withValues(alpha: 0.5),
+                        ),
+                      ),
+                      child: TextField(
+                        controller: emailController,
+                        keyboardType: TextInputType.emailAddress,
+                        enabled: !isLoading,
+                        style: const TextStyle(fontSize: 14),
+                        onChanged: (_) {
+                          if (errorMessage != null) {
+                            setDialogState(() => errorMessage = null);
+                          }
+                        },
+                        decoration: InputDecoration(
+                          hintText: tr('email'),
+                          hintStyle: const TextStyle(color: AppColors.textHint, fontSize: 13),
+                          prefixIcon: Icon(
+                            Icons.email_outlined,
+                            color: errorMessage != null ? AppColors.error : AppColors.primary,
+                            size: 18,
+                          ),
+                          border: InputBorder.none,
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 12,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    // 发送按钮
+                    GestureDetector(
+                      onTap: isLoading ? null : () async {
+                        AudioService.instance.playButton();
+                        
+                        final email = emailController.text.trim();
+                        if (email.isEmpty) {
+                          setDialogState(() => errorMessage = tr('email_required'));
+                          return;
+                        }
+                        
+                        setDialogState(() {
+                          isLoading = true;
+                          errorMessage = null;
+                        });
+                        
+                        final result = await AuthService.instance.forgotPassword(email);
+                        
+                        if (!dialogContext.mounted) return;
+                        
+                        if (result.isSuccess) {
+                          Navigator.of(dialogContext).pop();
+                          _showPasswordResetSuccessDialog();
+                        } else {
+                          setDialogState(() {
+                            isLoading = false;
+                            errorMessage = result.errorMessage;
+                          });
+                        }
+                      },
+                      child: Container(
+                        width: double.infinity,
+                        height: 42,
+                        decoration: BoxDecoration(
+                          gradient: isLoading 
+                              ? null
+                              : const LinearGradient(
+                                  colors: [AppColors.priorityP0, AppColors.priorityP1],
+                                  begin: Alignment.centerLeft,
+                                  end: Alignment.centerRight,
+                                ),
+                          color: isLoading ? AppColors.textHint : null,
+                          borderRadius: BorderRadius.circular(21),
+                          boxShadow: isLoading ? null : [
+                            BoxShadow(
+                              color: AppColors.priorityP0.withValues(alpha: 0.25),
+                              blurRadius: 8,
+                              offset: const Offset(0, 3),
+                            ),
+                          ],
+                        ),
+                        child: Center(
+                          child: isLoading
+                              ? Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      tr('sending'),
+                                      style: const TextStyle(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w600,
+                                        color: Colors.white,
+                                      ),
+                                    ),
+                                  ],
+                                )
+                              : Text(
+                                  tr('send'),
+                                  style: const TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  /// 显示密码重置邮件发送成功的浮层
+  void _showPasswordResetSuccessDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: true,
       builder: (context) => Dialog(
-        backgroundColor: AppColors.cardBackground,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        child: Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: AppColors.cardBackground,
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: [
+              BoxShadow(
+                color: AppColors.primary.withValues(alpha: 0.15),
+                blurRadius: 20,
+                offset: const Offset(0, 8),
+              ),
+            ],
+          ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              // 标题行 + X 按钮
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      tr('retrieve_password'),
-                      style: const TextStyle(
-                        fontSize: 16,
-                        color: AppColors.primary,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                  GestureDetector(
-                    onTap: () {
-                      AudioService.instance.playButton();
-                      Navigator.of(context).pop();
-                    },
-                    child: Container(
-                      width: 28,
-                      height: 28,
-                      decoration: BoxDecoration(
-                        color: AppColors.primaryLight.withValues(alpha: 0.3),
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(
-                        Icons.close,
-                        size: 16,
-                        color: AppColors.primary,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              Text(
-                tr('enter_email_reset'),
-                style: const TextStyle(
-                  fontSize: 12,
-                  color: AppColors.textSecondary,
-                ),
-              ),
-              const SizedBox(height: 12),
-              // 邮箱输入框
+              // 成功图标
               Container(
+                width: 56,
+                height: 56,
                 decoration: BoxDecoration(
-                  color: AppColors.background,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: AppColors.primaryLight.withValues(alpha: 0.5),
+                  gradient: const LinearGradient(
+                    colors: [AppColors.priorityP0, AppColors.priorityP1],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
                   ),
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(
+                      color: AppColors.priorityP0.withValues(alpha: 0.3),
+                      blurRadius: 12,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
                 ),
-                child: TextField(
-                  controller: emailController,
-                  keyboardType: TextInputType.emailAddress,
-                  style: const TextStyle(fontSize: 14),
-                  decoration: InputDecoration(
-                    hintText: tr('email'),
-                    hintStyle: const TextStyle(color: AppColors.textHint, fontSize: 13),
-                    prefixIcon: Icon(
-                      Icons.email_outlined,
-                      color: AppColors.primary,
-                      size: 18,
-                    ),
-                    border: InputBorder.none,
-                    contentPadding: EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 12,
-                    ),
-                  ),
+                child: const Icon(
+                  Icons.mark_email_read_outlined,
+                  color: Colors.white,
+                  size: 28,
                 ),
               ),
               const SizedBox(height: 16),
-              // 发送按钮
+              // 标题
+              Text(
+                tr('password_reset_email_sent'),
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.textPrimary,
+                ),
+              ),
+              const SizedBox(height: 8),
+              // 描述
+              Text(
+                tr('check_email_for_reset_link'),
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 13,
+                  color: AppColors.textSecondary,
+                ),
+              ),
+              const SizedBox(height: 20),
+              // 确定按钮
               GestureDetector(
                 onTap: () {
                   AudioService.instance.playButton();
                   Navigator.of(context).pop();
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(tr('reset_link_sent')),
-                      backgroundColor: AppColors.primary,
-                    ),
-                  );
                 },
                 child: Container(
                   width: double.infinity,
-                  height: 42,
+                  height: 40,
                   decoration: BoxDecoration(
                     gradient: const LinearGradient(
                       colors: [AppColors.priorityP0, AppColors.priorityP1],
                       begin: Alignment.centerLeft,
                       end: Alignment.centerRight,
                     ),
-                    borderRadius: BorderRadius.circular(21),
-                    boxShadow: [
-                      BoxShadow(
-                        color: AppColors.priorityP0.withValues(alpha: 0.25),
-                        blurRadius: 8,
-                        offset: const Offset(0, 3),
-                      ),
-                    ],
+                    borderRadius: BorderRadius.circular(20),
                   ),
                   child: Center(
                     child: Text(
-                      tr('send'),
+                      tr('confirm'),
                       style: const TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w600,
@@ -215,11 +412,18 @@ class _LoginPageState extends State<LoginPage> {
     return Scaffold(
       backgroundColor: AppColors.background,
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 32),
-          child: Column(
-            children: [
-              const SizedBox(height: 50),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            return SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(horizontal: 32),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  minHeight: constraints.maxHeight,
+                ),
+                child: IntrinsicHeight(
+                  child: Column(
+                    children: [
+                      const SizedBox(height: 50),
               // Logo - 猫咪
               const AuthCatLogo(size: 160),
               const SizedBox(height: 8),
@@ -344,11 +548,44 @@ class _LoginPageState extends State<LoginPage> {
                   ),
                 ],
               ),
-              const SizedBox(height: 40),
-            ],
-          ),
+              // Spacer to push badge to bottom
+              const Spacer(),
+              // Made in China badge
+              _buildMadeInChinaBadge(),
+              const SizedBox(height: 24),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
         ),
       ),
+    );
+  }
+
+  /// Made in China badge widget
+  Widget _buildMadeInChinaBadge() {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        SvgPicture.asset(
+          'assets/images/zh_cn.svg',
+          width: 24,
+          height: 16,
+        ),
+        const SizedBox(width: 8),
+        Text(
+          tr('made_in_china'),
+          style: const TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w500,
+            color: AppColors.textSecondary,
+            letterSpacing: 0.5,
+          ),
+        ),
+      ],
     );
   }
 

@@ -118,16 +118,17 @@
 
 ## 2. 认证授权
 
-### 2.1 微信授权登录
+### 2.1 邮箱密码登录
 
-**接口描述**：用户通过微信授权登录，首次登录自动注册账号
+**接口描述**：用户通过邮箱和密码登录
 
-**接口路径**：`POST /api/v1/auth/login/wechat`
+**接口路径**：`POST /api/v1/auth/login`
 
 **请求参数**：
 ```json
 {
-  "code": "wx_auth_code",
+  "email": "user@example.com",
+  "password": "123456",
   "deviceInfo": {
     "deviceId": "uuid-device-id",
     "deviceName": "iPhone 15 Pro",
@@ -140,7 +141,8 @@
 
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| code | string | 是 | 微信授权 code |
+| email | string | 是 | 用户邮箱 |
+| password | string | 是 | 用户密码 |
 | deviceInfo | object | 是 | 设备信息 |
 | deviceInfo.deviceId | string | 是 | 设备唯一标识（UUID） |
 | deviceInfo.deviceName | string | 是 | 设备名称 |
@@ -158,9 +160,8 @@
     "accessToken": "jwt-access-token",
     "refreshToken": "jwt-refresh-token",
     "expiresIn": 7200,
-    "isNewUser": true,
     "userInfo": {
-      "nickname": "微信用户",
+      "nickname": "用户昵称",
       "avatar": "default-avatar-1",
       "ipLocation": "广东 深圳"
     },
@@ -174,15 +175,118 @@
 ```
 
 **错误码**：
-- `1001`：微信授权失败
-- `1002`：账号已注销（Deactivated）
+- `1001`：邮箱或密码错误
 - `1003`：设备数量超出上限（10 台）
 
 **幂等要求**：无（登录接口不幂等，每次返回新 token）
 
 ---
 
-### 2.2 刷新 Token
+### 2.2 用户注册
+
+**接口描述**：用户通过邮箱注册新账号
+
+**接口路径**：`POST /api/v1/auth/register`
+
+**请求头**：
+- `X-Request-Id: {uuid}`（幂等）
+
+**请求参数**：
+```json
+{
+  "email": "user@example.com",
+  "password": "123456",
+  "nickname": "张三",
+  "deviceInfo": {
+    "deviceId": "uuid-device-id",
+    "deviceName": "iPhone 15 Pro",
+    "platform": "iOS",
+    "osVersion": "17.2",
+    "appVersion": "1.0.0"
+  }
+}
+```
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| email | string | 是 | 用户邮箱 |
+| password | string | 是 | 用户密码，6-32 位 |
+| nickname | string | 是 | 用户昵称，1-20 字符 |
+| deviceInfo | object | 是 | 设备信息 |
+
+**响应示例**：
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "userId": "user-uuid",
+    "accessToken": "jwt-access-token",
+    "refreshToken": "jwt-refresh-token",
+    "expiresIn": 7200,
+    "userInfo": {
+      "nickname": "张三",
+      "avatar": "default-avatar-1",
+      "ipLocation": "广东 深圳"
+    },
+    "entitlement": {
+      "status": "FREE_TRIAL",
+      "trialStartAt": "2026-01-27T00:00:00.000Z",
+      "expireAt": "2026-02-27T00:00:00.000Z"
+    }
+  }
+}
+```
+
+**错误码**：
+- `1004`：邮箱已被注册
+- `1005`：密码格式不正确（长度不足6位）
+- `1006`：昵称包含违规词
+
+**幂等要求**：幂等（同一 Request-Id 重复请求返回相同结果）
+
+---
+
+### 2.3 找回密码
+
+**接口描述**：用户通过邮箱找回密码，账号对应的密码会通过maidenplan@163.com发送给用户
+
+**接口路径**：`POST /api/v1/auth/forgot-password`
+
+**请求参数**：
+```json
+{
+  "email": "user@example.com"
+}
+```
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| email | string | 是 | 用户邮箱 |
+
+**响应示例**：
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "message": "密码重置邮件已发送，请查收"
+  }
+}
+```
+
+**错误码**：
+- `1007`：邮箱未注册
+
+**说明**：
+- 发送包含重置密码链接的邮件到用户邮箱
+- 同一邮箱 1 分钟内只能发送 1 次
+
+**幂等要求**：幂等（重复请求不会重复发送邮件，但会刷新有效期）
+
+---
+
+### 2.4 刷新 Token
 
 **接口描述**：使用 refresh_token 刷新 access_token
 
@@ -210,11 +314,10 @@
 
 **错误码**：
 - `401`：refresh_token 无效或过期
-- `1002`：账号已注销
 
 ---
 
-### 2.3 退出登录
+### 2.5 退出登录
 
 **接口描述**：退出当前设备登录，吊销 token
 
@@ -237,7 +340,7 @@
 
 ---
 
-### 2.4 查询设备列表
+### 2.6 查询设备列表
 
 **接口描述**：查询当前用户登录的所有设备
 
@@ -275,7 +378,7 @@
 
 ---
 
-### 2.5 踢出指定设备
+### 2.7 踢出指定设备
 
 **接口描述**：退出指定设备登录（仅对非当前设备生效）
 
@@ -300,6 +403,88 @@
 - `2002`：设备不存在
 
 **幂等要求**：幂等（重复踢出返回成功）
+
+---
+
+### 2.8 检查会话状态
+
+**接口描述**：检查当前会话是否有效，供前端定时轮询。如果会话失效（被踢出/退出/过期），前端应跳转到登录页
+
+**接口路径**：`GET /api/v1/auth/session/check`
+
+**请求头**：`Authorization: Bearer {access_token}`
+
+**请求参数**：无
+
+**响应示例**（会话有效）：
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "valid": true,
+    "userId": "uuid-user-id",
+    "deviceId": "uuid-device-id"
+  }
+}
+```
+
+**响应示例**（会话无效）：
+```json
+{
+  "code": 401,
+  "message": "未授权",
+  "data": null
+}
+```
+
+**说明**：
+- 建议前端每 10 秒轮询一次
+- 收到 401 响应时，前端应清除本地 Token 并跳转到登录页
+- 此接口不会刷新 Token，仅用于检查会话状态
+
+---
+
+### 2.9 修改密码
+
+**接口描述**：修改当前登录用户的密码
+
+**接口路径**：`POST /api/v1/auth/password`
+
+**请求头**：`Authorization: Bearer {access_token}`
+
+**请求参数**：
+```json
+{
+  "oldPassword": "当前密码",
+  "newPassword": "新密码"
+}
+```
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| oldPassword | string | 是 | 当前密码 |
+| newPassword | string | 是 | 新密码，8-20位，需包含字母和数字 |
+
+**响应示例**：
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "message": "密码修改成功"
+  }
+}
+```
+
+**错误码**：
+- `1001`：旧密码错误
+- `1005`：新密码格式不正确
+
+**说明**：
+- 修改密码后，当前设备保持登录状态
+- 其他设备将被强制下线（会话失效）
+- 建议前端在修改成功后提示用户其他设备已下线
 
 ---
 
@@ -793,7 +978,7 @@
 ```
 
 **说明**：
-- 打卡成功后连续打卡天数 +1，连续未打卡计数清零
+- 打卡成功后连续打卡天数 +1
 - 当日重复打卡幂等，不产生副作用
 
 **幂等要求**：幂等（当日重复打卡返回相同结果）
@@ -1250,9 +1435,12 @@
 
 | 错误码 | 模块 | 说明 |
 |--------|------|------|
-| 1001 | 认证 | 微信授权失败 |
-| 1002 | 认证 | 账号已注销（Deactivated） |
+| 1001 | 认证 | 邮箱或密码错误 |
 | 1003 | 认证 | 设备数量超出上限（10 台） |
+| 1004 | 认证 | 邮箱已被注册 |
+| 1005 | 认证 | 密码格式不正确（长度不足6位） |
+| 1006 | 认证 | 昵称包含违规词 |
+| 1007 | 认证 | 邮箱未注册 |
 | 2001 | 设备管理 | 不能踢出当前设备 |
 | 2002 | 设备管理 | 设备不存在 |
 | 3001 | 任务管理 | 任务标题为空或超长 |

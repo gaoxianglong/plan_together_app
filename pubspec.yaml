@@ -41,6 +41,15 @@ dependencies:
   
   # 音频播放
   audioplayers: ^6.1.0
+  
+  # 网络请求
+  http: ^1.2.0
+  
+  # 设备信息
+  device_info_plus: ^10.1.0
+  
+  # UUID 生成
+  uuid: ^4.4.0
 
 dev_dependencies:
   flutter_test:

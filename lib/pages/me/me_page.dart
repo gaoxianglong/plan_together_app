@@ -133,123 +133,162 @@ class _MePageState extends State<MePage> {
     AudioService.instance.playButton();
     showDialog(
       context: context,
-      builder: (context) => Dialog(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        child: Container(
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            color: AppColors.cardBackground,
-            borderRadius: BorderRadius.circular(24),
-            boxShadow: [
-              BoxShadow(
-                color: AppColors.primary.withValues(alpha: 0.15),
-                blurRadius: 20,
-                offset: const Offset(0, 8),
-              ),
-            ],
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 56,
-                height: 56,
+      builder: (dialogContext) {
+        bool isLoggingOut = false;
+        
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return Dialog(
+              backgroundColor: Colors.transparent,
+              elevation: 0,
+              child: Container(
+                padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
-                  color: AppColors.primary.withValues(alpha: 0.1),
-                  shape: BoxShape.circle,
+                  color: AppColors.cardBackground,
+                  borderRadius: BorderRadius.circular(24),
+                  boxShadow: [
+                    BoxShadow(
+                      color: AppColors.primary.withValues(alpha: 0.15),
+                      blurRadius: 20,
+                      offset: const Offset(0, 8),
+                    ),
+                  ],
                 ),
-                child: const Icon(
-                  Icons.logout_rounded,
-                  color: AppColors.primary,
-                  size: 28,
-                ),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                tr('leaving_so_soon'),
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                tr('logout_message'),
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  fontSize: 13,
-                  color: AppColors.textSecondary,
-                  height: 1.4,
-                ),
-              ),
-              const SizedBox(height: 20),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextButton(
-                      onPressed: () {
-                        AudioService.instance.playButton();
-                        Navigator.of(context).pop();
-                      },
-                      style: TextButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 10),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          side: BorderSide(
-                            color: AppColors.textSecondary.withValues(alpha: 0.2),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 56,
+                      height: 56,
+                      decoration: BoxDecoration(
+                        color: AppColors.primary.withValues(alpha: 0.1),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.logout_rounded,
+                        color: AppColors.primary,
+                        size: 28,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      tr('leaving_so_soon'),
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      tr('logout_message'),
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: AppColors.textSecondary,
+                        height: 1.4,
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextButton(
+                            onPressed: isLoggingOut ? null : () {
+                              AudioService.instance.playButton();
+                              Navigator.of(dialogContext).pop();
+                            },
+                            style: TextButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 10),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                side: BorderSide(
+                                  color: AppColors.textSecondary.withValues(alpha: 0.2),
+                                ),
+                              ),
+                            ),
+                            child: Text(
+                              tr('stay'),
+                              style: TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w600,
+                                color: isLoggingOut 
+                                    ? AppColors.textHint 
+                                    : AppColors.textSecondary,
+                              ),
+                            ),
                           ),
                         ),
-                      ),
-                      child: Text(
-                        tr('stay'),
-                        style: const TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.textSecondary,
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: ElevatedButton(
-                      onPressed: () async {
-                        AudioService.instance.playButton();
-                        await AuthService.instance.logout();
-                        if (context.mounted) {
-                          Navigator.of(context).pushAndRemoveUntil(
-                            MaterialPageRoute(
-                              builder: (_) => const LoginPage(),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: ElevatedButton(
+                            onPressed: isLoggingOut ? null : () async {
+                              AudioService.instance.playButton();
+                              setDialogState(() => isLoggingOut = true);
+                              
+                              try {
+                                await AuthService.instance.logout();
+                                if (dialogContext.mounted) {
+                                  Navigator.of(dialogContext).pushAndRemoveUntil(
+                                    MaterialPageRoute(
+                                      builder: (_) => const LoginPage(),
+                                    ),
+                                    (route) => false,
+                                  );
+                                }
+                              } catch (e) {
+                                if (dialogContext.mounted) {
+                                  setDialogState(() => isLoggingOut = false);
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(tr('network_error')),
+                                      backgroundColor: AppColors.error,
+                                      behavior: SnackBarBehavior.floating,
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                    ),
+                                  );
+                                }
+                              }
+                            },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: isLoggingOut 
+                                  ? AppColors.textHint 
+                                  : AppColors.primary,
+                              elevation: 0,
+                              padding: const EdgeInsets.symmetric(vertical: 10),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
                             ),
-                            (route) => false,
-                          );
-                        }
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.primary,
-                        elevation: 0,
-                        padding: const EdgeInsets.symmetric(vertical: 10),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
+                            child: isLoggingOut
+                                ? const SizedBox(
+                                    width: 20,
+                                    height: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                    ),
+                                  )
+                                : Text(
+                                    tr('logout'),
+                                    style: const TextStyle(
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w600,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                          ),
                         ),
-                      ),
-                      child: Text(
-                        tr('logout'),
-                        style: const TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.white,
-                        ),
-                      ),
+                      ],
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ],
-          ),
-        ),
-      ),
+            );
+          },
+        );
+      },
     );
   }
 
@@ -556,9 +595,36 @@ class _MePageState extends State<MePage> {
     );
   }
 
+  /// Made in China badge widget
+  Widget _buildMadeInChinaBadge() {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        SvgPicture.asset(
+          'assets/images/zh_cn.svg',
+          width: 24,
+          height: 16,
+        ),
+        const SizedBox(width: 8),
+        Text(
+          tr('made_in_china'),
+          style: const TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w500,
+            color: AppColors.textSecondary,
+            letterSpacing: 0.5,
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildHeader() {
     return Column(
       children: [
+        // Made in China badge
+        _buildMadeInChinaBadge(),
+        const SizedBox(height: 20),
         // Avatar (clickable)
         GestureDetector(
           onTap: _showAvatarSelection,
@@ -704,163 +770,217 @@ class _MePageState extends State<MePage> {
 }
 
 /// Device management sheet
-class _DeviceManagementSheet extends StatelessWidget {
-  // Mock device list data
-  final List<_DeviceInfo> _devices = [
-    _DeviceInfo(
-      name: 'iPhone 15 Pro',
-      ip: '192.168.1.100',
-      lastLoginTime: DateTime.now(),
-      isCurrent: true,
-    ),
-    _DeviceInfo(
-      name: 'iPad Pro',
-      ip: '192.168.1.101',
-      lastLoginTime: DateTime.now().subtract(const Duration(hours: 2)),
-      isCurrent: false,
-    ),
-    _DeviceInfo(
-      name: 'MacBook Pro',
-      ip: '192.168.1.102',
-      lastLoginTime: DateTime.now().subtract(const Duration(days: 1)),
-      isCurrent: false,
-    ),
-  ];
+class _DeviceManagementSheet extends StatefulWidget {
+  const _DeviceManagementSheet();
 
-  _DeviceManagementSheet();
+  @override
+  State<_DeviceManagementSheet> createState() => _DeviceManagementSheetState();
+}
 
-  void _handleLogoutDevice(BuildContext context, _DeviceInfo device) {
+class _DeviceManagementSheetState extends State<_DeviceManagementSheet> {
+  bool _isLoading = true;
+  String? _errorMessage;
+  DeviceInfo? _currentDevice;
+  List<DeviceInfo> _otherDevices = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadDevices();
+  }
+
+  Future<void> _loadDevices() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    final result = await AuthService.instance.getDevices();
+
+    if (!mounted) return;
+
+    if (result.isSuccess) {
+      setState(() {
+        _isLoading = false;
+        _currentDevice = result.currentDevice;
+        _otherDevices = result.otherDevices;
+      });
+    } else {
+      setState(() {
+        _isLoading = false;
+        _errorMessage = result.errorMessage;
+      });
+    }
+  }
+
+  int get _totalDeviceCount => (_currentDevice != null ? 1 : 0) + _otherDevices.length;
+
+  void _handleLogoutDevice(BuildContext context, DeviceInfo device) {
     AudioService.instance.playButton();
     showDialog(
       context: context,
-      builder: (dialogContext) => Dialog(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        child: Container(
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            color: AppColors.cardBackground,
-            borderRadius: BorderRadius.circular(24),
-            boxShadow: [
-              BoxShadow(
-                color: AppColors.primary.withValues(alpha: 0.15),
-                blurRadius: 20,
-                offset: const Offset(0, 8),
-              ),
-            ],
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 56,
-                height: 56,
+      builder: (dialogContext) {
+        bool isLoggingOut = false;
+        
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return Dialog(
+              backgroundColor: Colors.transparent,
+              elevation: 0,
+              child: Container(
+                padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
-                  color: AppColors.primary.withValues(alpha: 0.1),
-                  shape: BoxShape.circle,
+                  color: AppColors.cardBackground,
+                  borderRadius: BorderRadius.circular(24),
+                  boxShadow: [
+                    BoxShadow(
+                      color: AppColors.primary.withValues(alpha: 0.15),
+                      blurRadius: 20,
+                      offset: const Offset(0, 8),
+                    ),
+                  ],
                 ),
-                child: Icon(
-                  _getDeviceIcon(device.name),
-                  color: AppColors.primary,
-                  size: 24,
-                ),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                tr('logout_device'),
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: AppColors.textPrimary,
-                ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                tr('logout_device_confirm').replaceAll('%s', device.name),
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  fontSize: 13,
-                  color: AppColors.textSecondary,
-                  height: 1.4,
-                ),
-              ),
-              const SizedBox(height: 20),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextButton(
-                      onPressed: () {
-                        AudioService.instance.playButton();
-                        Navigator.of(dialogContext).pop();
-                      },
-                      style: TextButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 10),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          side: BorderSide(
-                            color: AppColors.textSecondary.withValues(
-                              alpha: 0.2,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 56,
+                      height: 56,
+                      decoration: BoxDecoration(
+                        color: AppColors.primary.withValues(alpha: 0.1),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(
+                        _getDeviceIcon(device.deviceName),
+                        color: AppColors.primary,
+                        size: 24,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      tr('logout_device'),
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      tr('logout_device_confirm').replaceAll('%s', device.deviceName),
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: AppColors.textSecondary,
+                        height: 1.4,
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextButton(
+                            onPressed: isLoggingOut ? null : () {
+                              AudioService.instance.playButton();
+                              Navigator.of(dialogContext).pop();
+                            },
+                            style: TextButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 10),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                side: BorderSide(
+                                  color: AppColors.textSecondary.withValues(
+                                    alpha: 0.2,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            child: Text(
+                              tr('cancel'),
+                              style: TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w600,
+                                color: isLoggingOut 
+                                    ? AppColors.textHint 
+                                    : AppColors.textSecondary,
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                      child: Text(
-                        tr('cancel'),
-                        style: const TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.textSecondary,
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: ElevatedButton(
-                      onPressed: () {
-                        AudioService.instance.playButton();
-                        Navigator.of(dialogContext).pop();
-                        // Frontend simulation: show success hint
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text(
-                              tr(
-                                'device_logged_out',
-                              ).replaceAll('%s', device.name),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: ElevatedButton(
+                            onPressed: isLoggingOut ? null : () async {
+                              AudioService.instance.playButton();
+                              setDialogState(() => isLoggingOut = true);
+                              
+                              final result = await AuthService.instance.logoutDevice(device.deviceId);
+                              
+                              if (!dialogContext.mounted) return;
+                              Navigator.of(dialogContext).pop();
+                              
+                              if (result.isSuccess) {
+                                // 踢出成功，直接从列表中删除该设备，不显示提示
+                                if (mounted) {
+                                  setState(() {
+                                    _otherDevices.removeWhere((d) => d.deviceId == device.deviceId);
+                                  });
+                                }
+                              } else {
+                                // 踢出失败，显示错误信息
+                                if (mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(result.errorMessage ?? tr('network_error')),
+                                      backgroundColor: AppColors.error,
+                                      behavior: SnackBarBehavior.floating,
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                    ),
+                                  );
+                                }
+                              }
+                            },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: isLoggingOut 
+                                  ? AppColors.textHint 
+                                  : AppColors.primary,
+                              elevation: 0,
+                              padding: const EdgeInsets.symmetric(vertical: 10),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              shadowColor: AppColors.primary.withValues(alpha: 0.4),
                             ),
-                            backgroundColor: AppColors.primary,
-                            behavior: SnackBarBehavior.floating,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(8),
-                            ),
+                            child: isLoggingOut
+                                ? const SizedBox(
+                                    width: 20,
+                                    height: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                    ),
+                                  )
+                                : Text(
+                                    tr('logout'),
+                                    style: const TextStyle(
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w600,
+                                      color: Colors.white,
+                                    ),
+                                  ),
                           ),
-                        );
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.primary,
-                        elevation: 0,
-                        padding: const EdgeInsets.symmetric(vertical: 10),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
                         ),
-                        shadowColor: AppColors.primary.withValues(alpha: 0.4),
-                      ),
-                      child: Text(
-                        tr('logout'),
-                        style: const TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.white,
-                        ),
-                      ),
+                      ],
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ],
-          ),
-        ),
-      ),
+            );
+          },
+        );
+      },
     );
   }
 
@@ -894,7 +1014,7 @@ class _DeviceManagementSheet extends StatelessWidget {
                 children: [
                   Row(
                     children: [
-                      Icon(Icons.devices, color: AppColors.primary, size: 22),
+                      const Icon(Icons.devices, color: AppColors.primary, size: 22),
                       const SizedBox(width: 8),
                       Text(
                         tr('my_devices'),
@@ -906,60 +1026,93 @@ class _DeviceManagementSheet extends StatelessWidget {
                       ),
                     ],
                   ),
-                  GestureDetector(
-                    onTap: () {
-                      AudioService.instance.playButton();
-                      Navigator.of(context).pop();
-                    },
-                    child: Container(
-                      width: 32,
-                      height: 32,
-                      decoration: const BoxDecoration(
-                        color: AppColors.surfaceLight,
-                        shape: BoxShape.circle,
+                  Row(
+                    children: [
+                      // Refresh button
+                      if (!_isLoading)
+                        GestureDetector(
+                          onTap: () {
+                            AudioService.instance.playButton();
+                            _loadDevices();
+                          },
+                          child: Container(
+                            width: 32,
+                            height: 32,
+                            margin: const EdgeInsets.only(right: 8),
+                            decoration: const BoxDecoration(
+                              color: AppColors.surfaceLight,
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(
+                              Icons.refresh,
+                              size: 18,
+                              color: AppColors.primary,
+                            ),
+                          ),
+                        ),
+                      // Close button
+                      GestureDetector(
+                        onTap: () {
+                          AudioService.instance.playButton();
+                          Navigator.of(context).pop();
+                        },
+                        child: Container(
+                          width: 32,
+                          height: 32,
+                          decoration: const BoxDecoration(
+                            color: AppColors.surfaceLight,
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.close,
+                            size: 18,
+                            color: AppColors.textSecondary,
+                          ),
+                        ),
                       ),
-                      child: const Icon(
-                        Icons.close,
-                        size: 18,
-                        color: AppColors.textSecondary,
-                      ),
-                    ),
+                    ],
                   ),
                 ],
               ),
             ),
             const SizedBox(height: 4),
             // Device count hint
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  '${_devices.length}/10 devices logged in',
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: AppColors.textSecondary,
+            if (!_isLoading && _errorMessage == null)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: RichText(
+                    text: TextSpan(
+                      children: [
+                        TextSpan(
+                          text: '$_totalDeviceCount/10',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.error,
+                          ),
+                        ),
+                        TextSpan(
+                          text: ' ${tr('devices_logged_in')}',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: AppColors.textSecondary,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
-            ),
             const SizedBox(height: 12),
-            // Device list
-            Container(
-              constraints: BoxConstraints(
-                maxHeight: MediaQuery.of(context).size.height * 0.4,
-              ),
-              child: ListView.separated(
-                shrinkWrap: true,
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                itemCount: _devices.length,
-                separatorBuilder: (_, __) => const SizedBox(height: 8),
-                itemBuilder: (context, index) {
-                  final device = _devices[index];
-                  return _buildDeviceItem(context, device);
-                },
-              ),
-            ),
+            // Content
+            if (_isLoading)
+              _buildLoadingState()
+            else if (_errorMessage != null)
+              _buildErrorState()
+            else
+              _buildDeviceList(),
             const SizedBox(height: 24),
           ],
         ),
@@ -967,7 +1120,117 @@ class _DeviceManagementSheet extends StatelessWidget {
     );
   }
 
-  Widget _buildDeviceItem(BuildContext context, _DeviceInfo device) {
+  Widget _buildLoadingState() {
+    return Container(
+      height: 150,
+      alignment: Alignment.center,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const CircularProgressIndicator(
+            valueColor: AlwaysStoppedAnimation<Color>(AppColors.primary),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            tr('loading_devices'),
+            style: const TextStyle(
+              fontSize: 13,
+              color: AppColors.textSecondary,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildErrorState() {
+    return Container(
+      height: 150,
+      alignment: Alignment.center,
+      padding: const EdgeInsets.symmetric(horizontal: 24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.error_outline,
+            size: 40,
+            color: AppColors.error.withValues(alpha: 0.7),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            _errorMessage!,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              fontSize: 13,
+              color: AppColors.textSecondary,
+            ),
+          ),
+          const SizedBox(height: 12),
+          GestureDetector(
+            onTap: () {
+              AudioService.instance.playButton();
+              _loadDevices();
+            },
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              decoration: BoxDecoration(
+                color: AppColors.primary.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                tr('refresh'),
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                  color: AppColors.primary,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDeviceList() {
+    final allDevices = <DeviceInfo>[];
+    if (_currentDevice != null) {
+      allDevices.add(_currentDevice!);
+    }
+    allDevices.addAll(_otherDevices);
+
+    if (allDevices.isEmpty) {
+      return Container(
+        height: 100,
+        alignment: Alignment.center,
+        child: Text(
+          tr('no_other_devices'),
+          style: const TextStyle(
+            fontSize: 13,
+            color: AppColors.textSecondary,
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.of(context).size.height * 0.4,
+      ),
+      child: ListView.separated(
+        shrinkWrap: true,
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        itemCount: allDevices.length,
+        separatorBuilder: (_, __) => const SizedBox(height: 8),
+        itemBuilder: (context, index) {
+          final device = allDevices[index];
+          return _buildDeviceItem(context, device);
+        },
+      ),
+    );
+  }
+
+  Widget _buildDeviceItem(BuildContext context, DeviceInfo device) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
@@ -993,7 +1256,7 @@ class _DeviceManagementSheet extends StatelessWidget {
               borderRadius: BorderRadius.circular(8),
             ),
             child: Icon(
-              _getDeviceIcon(device.name),
+              _getDeviceIcon(device.deviceName),
               color: device.isCurrent
                   ? AppColors.primary
                   : AppColors.textSecondary,
@@ -1008,12 +1271,15 @@ class _DeviceManagementSheet extends StatelessWidget {
               children: [
                 Row(
                   children: [
-                    Text(
-                      device.name,
-                      style: const TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.textPrimary,
+                    Flexible(
+                      child: Text(
+                        device.deviceName,
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.textPrimary,
+                        ),
+                        overflow: TextOverflow.ellipsis,
                       ),
                     ),
                     if (device.isCurrent) ...[
@@ -1040,20 +1306,22 @@ class _DeviceManagementSheet extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 2),
-                Text(
-                  'IP: ${device.ip}',
-                  style: const TextStyle(
-                    fontSize: 11,
-                    color: AppColors.textSecondary,
+                if (device.lastLoginIp != null)
+                  Text(
+                    'IP: ${device.lastLoginIp}',
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: AppColors.textSecondary,
+                    ),
                   ),
-                ),
-                Text(
-                  'Last login: ${_formatTime(device.lastLoginTime)}',
-                  style: const TextStyle(
-                    fontSize: 11,
-                    color: AppColors.textHint,
+                if (device.lastLoginAt != null)
+                  Text(
+                    '${tr('last_login')}: ${_formatTime(device.lastLoginAt!)}',
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: AppColors.textHint,
+                    ),
                   ),
-                ),
               ],
             ),
           ),
@@ -1098,37 +1366,27 @@ class _DeviceManagementSheet extends StatelessWidget {
     }
   }
 
-  String _formatTime(DateTime time) {
-    final now = DateTime.now();
-    final diff = now.difference(time);
+  String _formatTime(String isoTime) {
+    try {
+      final time = DateTime.parse(isoTime);
+      final now = DateTime.now();
+      final diff = now.difference(time);
 
-    if (diff.inMinutes < 1) {
-      return tr('just_now');
-    } else if (diff.inHours < 1) {
-      return tr('minutes_ago').replaceAll('%d', '${diff.inMinutes}');
-    } else if (diff.inDays < 1) {
-      return tr('hours_ago').replaceAll('%d', '${diff.inHours}');
-    } else if (diff.inDays < 7) {
-      return tr('days_ago').replaceAll('%d', '${diff.inDays}');
-    } else {
-      return '${time.month}/${time.day}/${time.year}';
+      if (diff.inMinutes < 1) {
+        return tr('just_now');
+      } else if (diff.inHours < 1) {
+        return tr('minutes_ago').replaceAll('%d', '${diff.inMinutes}');
+      } else if (diff.inDays < 1) {
+        return tr('hours_ago').replaceAll('%d', '${diff.inHours}');
+      } else if (diff.inDays < 7) {
+        return tr('days_ago').replaceAll('%d', '${diff.inDays}');
+      } else {
+        return '${time.month}/${time.day}/${time.year}';
+      }
+    } catch (e) {
+      return isoTime;
     }
   }
-}
-
-/// Device info model
-class _DeviceInfo {
-  final String name;
-  final String ip;
-  final DateTime lastLoginTime;
-  final bool isCurrent;
-
-  _DeviceInfo({
-    required this.name,
-    required this.ip,
-    required this.lastLoginTime,
-    required this.isCurrent,
-  });
 }
 
 /// Avatar selection sheet
@@ -1326,29 +1584,238 @@ class _ChangePasswordSheetState extends State<_ChangePasswordSheet> {
       setState(() => _error = tr('passwords_not_match'));
       return;
     }
+    if (newPassword == currentPassword) {
+      // 新密码与原密码相同，弹出浮层提示
+      _showSamePasswordWarningDialog(context);
+      return;
+    }
 
     setState(() {
       _isLoading = true;
       _error = null;
     });
 
-    // Simulate API call
-    await Future.delayed(const Duration(seconds: 1));
+    // 调用后端 API 修改密码
+    final result = await AuthService.instance.changePassword(
+      oldPassword: currentPassword,
+      newPassword: newPassword,
+    );
 
-    if (mounted) {
-      setState(() => _isLoading = false);
+    if (!mounted) return;
 
-      // Show success message and close
+    setState(() => _isLoading = false);
+
+    if (result.isSuccess) {
+      // 密码修改成功，关闭底部弹窗并显示成功浮层
       Navigator.pop(context);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(tr('password_changed')),
-          backgroundColor: AppColors.primary,
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-        ),
-      );
+      _showPasswordChangedDialog(context);
+    } else {
+      // 显示错误信息
+      setState(() => _error = result.errorMessage);
     }
+  }
+
+  /// 显示密码修改成功的浮层
+  void _showPasswordChangedDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          child: Container(
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: AppColors.cardBackground,
+              borderRadius: BorderRadius.circular(24),
+              boxShadow: [
+                BoxShadow(
+                  color: AppColors.primary.withValues(alpha: 0.15),
+                  blurRadius: 20,
+                  offset: const Offset(0, 8),
+                ),
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // 成功图标
+                Container(
+                  width: 64,
+                  height: 64,
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        AppColors.primary.withValues(alpha: 0.2),
+                        AppColors.primary.withValues(alpha: 0.1),
+                      ],
+                    ),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.check_circle_rounded,
+                    color: AppColors.primary,
+                    size: 36,
+                  ),
+                ),
+                const SizedBox(height: 20),
+                // 标题
+                Text(
+                  tr('password_changed'),
+                  style: const TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.textPrimary,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 12),
+                // 副标题
+                Text(
+                  tr('other_devices_logged_out'),
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: AppColors.textSecondary.withValues(alpha: 0.8),
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 24),
+                // 确认按钮
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () {
+                      AudioService.instance.playButton();
+                      Navigator.pop(dialogContext);
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      elevation: 0,
+                    ),
+                    child: Text(
+                      tr('got_it'),
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  /// 显示新密码与原密码相同的警告浮层
+  void _showSamePasswordWarningDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (dialogContext) {
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          child: Container(
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: AppColors.cardBackground,
+              borderRadius: BorderRadius.circular(24),
+              boxShadow: [
+                BoxShadow(
+                  color: AppColors.primary.withValues(alpha: 0.15),
+                  blurRadius: 20,
+                  offset: const Offset(0, 8),
+                ),
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // 提示图标
+                Container(
+                  width: 64,
+                  height: 64,
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        AppColors.primary.withValues(alpha: 0.2),
+                        AppColors.primary.withValues(alpha: 0.1),
+                      ],
+                    ),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.info_outline_rounded,
+                    color: AppColors.primary,
+                    size: 36,
+                  ),
+                ),
+                const SizedBox(height: 20),
+                // 标题
+                Text(
+                  tr('new_password_same_as_old'),
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.textPrimary,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 12),
+                // 副标题
+                Text(
+                  tr('please_use_different_password'),
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: AppColors.textSecondary.withValues(alpha: 0.8),
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 24),
+                // 确认按钮
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () {
+                      AudioService.instance.playButton();
+                      Navigator.pop(dialogContext);
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      elevation: 0,
+                    ),
+                    child: Text(
+                      tr('got_it'),
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 
   @override

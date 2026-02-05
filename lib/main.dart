@@ -9,6 +9,11 @@ import 'services/audio_service.dart';
 import 'services/avatar_service.dart';
 import 'services/nickname_service.dart';
 import 'services/locale_service.dart';
+import 'services/device_service.dart';
+import 'services/api_client.dart';
+
+/// 全局导航 Key，用于在非 Widget 上下文中进行导航（如 401 自动跳转登录页）
+final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -24,6 +29,7 @@ void main() async {
 
   // 初始化服务
   await LocaleService.instance.initialize(); // Initialize locale first
+  await DeviceService.instance.initialize(); // Initialize device info
   await AuthService.instance.initialize();
   await CelebrationService.instance.initialize();
   await QuoteService.instance.initialize();
@@ -40,8 +46,19 @@ class MaidenPlanApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // 设置 ApiClient 的全局导航回调（用于 401 自动跳转登录页）
+    ApiClient.instance.setOnUnauthorized(() {
+      // 清除 token 并跳转到登录页
+      AuthService.instance.clearLocalAuth();
+      navigatorKey.currentState?.pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const LoginPage()),
+        (route) => false,
+      );
+    });
+
     // 始终先进入登录页（仅前端交互，不涉及后端存储）
     return MaterialApp(
+      navigatorKey: navigatorKey,
       title: 'Maiden Plan',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
