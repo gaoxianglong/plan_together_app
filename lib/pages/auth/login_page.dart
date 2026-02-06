@@ -55,8 +55,11 @@ class _LoginPageState extends State<LoginPage> {
     if (!mounted) return;
 
     if (result.isSuccess) {
-      // 登录成功，开启会话状态轮询
+      // 登录成功，拉取用户信息并同步到本地
+      await AuthService.instance.fetchAndSyncUserProfile();
+      // 开启会话状态轮询
       AuthService.instance.startSessionPolling();
+      if (!mounted) return;
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(builder: (_) => const MainPage()),
       );

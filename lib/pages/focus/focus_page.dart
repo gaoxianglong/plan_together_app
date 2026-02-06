@@ -6,6 +6,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 import '../../theme/app_colors.dart';
 import '../../services/audio_service.dart';
 import '../../services/locale_service.dart';
+import '../../services/focus_service.dart';
 
 class FocusPage extends StatefulWidget {
   const FocusPage({super.key});
@@ -22,36 +23,12 @@ class _FocusPageState extends State<FocusPage> with TickerProviderStateMixin {
   int _totalDuration = _defaultDuration;
   int _remainingSeconds = _defaultDuration;
   bool _isRunning = false;
+  bool _isStarting = false; // API 请求中，防止重复点击
   bool _autoStartNext = false;
   Timer? _timer;
 
-  // 专注记录数据（模拟数据，后续可接入持久化存储）
-  final List<FocusRecord> _focusRecords = [
-    FocusRecord(
-      duration: 25,
-      completedAt: DateTime.now().subtract(const Duration(hours: 2)),
-    ),
-    FocusRecord(
-      duration: 45,
-      completedAt: DateTime.now().subtract(const Duration(hours: 5)),
-    ),
-    FocusRecord(
-      duration: 30,
-      completedAt: DateTime.now().subtract(const Duration(days: 1)),
-    ),
-    FocusRecord(
-      duration: 60,
-      completedAt: DateTime.now().subtract(const Duration(days: 1, hours: 3)),
-    ),
-    FocusRecord(
-      duration: 25,
-      completedAt: DateTime.now().subtract(const Duration(days: 2)),
-    ),
-    FocusRecord(
-      duration: 50,
-      completedAt: DateTime.now().subtract(const Duration(days: 3)),
-    ),
-  ];
+  // 本地专注记录（当前会话中的记录）
+  final List<FocusRecord> _focusRecords = [];
 
   // Animation controller for the progress indicator
   late AnimationController _progressController;
@@ -98,7 +75,38 @@ class _FocusPageState extends State<FocusPage> with TickerProviderStateMixin {
     }
   }
 
-  void _startTimer() {
+  void _startTimer() async {
+    // 防止重复点击
+    if (_isStarting) return;
+
+    // 仅在首次启动（非暂停恢复）时调用 API
+    final bool isFirstStart = _remainingSeconds == _totalDuration;
+
+    if (isFirstStart) {
+      setState(() => _isStarting = true);
+
+      // 调用后端 API 开始专注
+      final result = await FocusService.instance.startFocus(
+        durationSeconds: _totalDuration,
+      );
+
+      if (!mounted) return;
+      setState(() => _isStarting = false);
+
+      if (!result.isSuccess) {
+        // 开始失败，显示错误提示
+        _showInfoDialog(
+          icon: Icons.timer_off_rounded,
+          title: tr('focus_start_failed'),
+          subtitle: result.errorCode == 4001
+              ? tr('error_focus_session_exists')
+              : result.errorMessage ?? tr('network_error'),
+        );
+        return;
+      }
+    }
+
+    // API 成功或暂停恢复，启动本地计时器
     setState(() {
       _isRunning = true;
     });
@@ -123,17 +131,49 @@ class _FocusPageState extends State<FocusPage> with TickerProviderStateMixin {
     });
   }
 
-  void _endTimer() {
+  void _endTimer() async {
     AudioService.instance.playButton();
     _timer?.cancel();
+    
+    // 计算已专注秒数
+    final elapsedSeconds = _totalDuration - _remainingSeconds;
+    
     setState(() {
       _isRunning = false;
       _remainingSeconds = _totalDuration;
       _progressController.value = 0.0;
     });
+
+    // 调用后端 API 手动结束专注
+    if (FocusService.instance.currentSessionId != null) {
+      final result = await FocusService.instance.endFocus(
+        elapsedSeconds: elapsedSeconds,
+        endType: FocusEndType.manual,
+      );
+
+      if (mounted && result.isSuccess && result.endData != null) {
+        final endData = result.endData!;
+        if (endData.counted) {
+          // 计入专注时长，添加本地记录
+          _addFocusRecordWithSeconds(endData.countedSeconds);
+          _showInfoDialog(
+            icon: Icons.check_circle_rounded,
+            title: tr('focus_counted'),
+            subtitle: '${endData.countedSeconds ~/ 60} ${tr('min')}',
+          );
+        } else {
+          // 未达到 50%，不计入
+          _showInfoDialog(
+            icon: Icons.info_outline_rounded,
+            title: tr('focus_not_counted_title'),
+            subtitle: tr('focus_not_counted'),
+          );
+        }
+      }
+    }
   }
 
-  void _completeTimer() {
+  void _completeTimer() async {
     _timer?.cancel();
     setState(() {
       _isRunning = false;
@@ -144,38 +184,53 @@ class _FocusPageState extends State<FocusPage> with TickerProviderStateMixin {
     // 播放番茄钟完成音效
     AudioService.instance.playTimerComplete();
 
-    // 添加本次专注记录
-    _addFocusRecord();
+    // 调用后端 API 自然结束专注
+    if (FocusService.instance.currentSessionId != null) {
+      final result = await FocusService.instance.endFocus(
+        elapsedSeconds: _totalDuration,
+        endType: FocusEndType.natural,
+      );
 
-    // Lightweight hint
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          _autoStartNext
-              ? '🎉 ${tr('pomodoro_completed_next')}'
-              : '🎉 ${tr('pomodoro_completed')}',
-          style: const TextStyle(color: Colors.white),
-        ),
-        backgroundColor: AppColors.primary,
-        duration: const Duration(seconds: 2),
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      ),
-    );
+      if (mounted && result.isSuccess && result.endData != null) {
+        // 自然结束总是计入
+        _addFocusRecordWithSeconds(result.endData!.countedSeconds);
+      } else {
+        // API 失败时仍添加本地记录
+        _addFocusRecord();
+      }
+    } else {
+      _addFocusRecord();
+    }
 
-    // 如果勾选了自动开始下一轮，延迟后自动开始
-    if (_autoStartNext) {
-      Future.delayed(const Duration(seconds: 2), () {
-        if (mounted) {
-          _startNextRound();
-        }
-      });
+    if (mounted) {
+      if (_autoStartNext) {
+        // 自动开始下一轮，不弹任何提示
+        _startNextRound();
+      } else {
+        // 非自动模式，弹出完成提示
+        _showInfoDialog(
+          icon: Icons.check_circle_rounded,
+          title: tr('pomodoro_completed'),
+        );
+      }
     }
   }
 
-  /// 添加专注记录
+  /// 添加专注记录（按总设定时长）
   void _addFocusRecord() {
     final durationMinutes = _totalDuration ~/ 60;
+    setState(() {
+      _focusRecords.insert(
+        0,
+        FocusRecord(duration: durationMinutes, completedAt: DateTime.now()),
+      );
+    });
+  }
+
+  /// 添加专注记录（按实际计入的秒数）
+  void _addFocusRecordWithSeconds(int countedSeconds) {
+    final durationMinutes = (countedSeconds / 60).ceil();
+    if (durationMinutes <= 0) return;
     setState(() {
       _focusRecords.insert(
         0,
@@ -193,213 +248,115 @@ class _FocusPageState extends State<FocusPage> with TickerProviderStateMixin {
     _startTimer();
   }
 
-  // 计算专注统计数据
-  int get _totalFocusMinutes =>
-      _focusRecords.fold(0, (sum, record) => sum + record.duration);
-
-  int get _longestFocusMinutes => _focusRecords.isEmpty
-      ? 0
-      : _focusRecords.map((r) => r.duration).reduce((a, b) => a > b ? a : b);
-
-  int get _focusCount => _focusRecords.length;
-
   void _showFocusRecordSheet() {
     AudioService.instance.playButton();
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
-      builder: (context) => Container(
-        decoration: const BoxDecoration(
-          color: AppColors.background,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-        ),
-        child: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+      builder: (context) => const _FocusHistorySheet(),
+    );
+  }
+
+  /// 显示统一风格的提示浮层
+  void _showInfoDialog({
+    required IconData icon,
+    required String title,
+    String? subtitle,
+    VoidCallback? onDismiss,
+  }) {
+    showDialog(
+      context: context,
+      builder: (dialogContext) {
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          child: Container(
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: AppColors.cardBackground,
+              borderRadius: BorderRadius.circular(24),
+              boxShadow: [
+                BoxShadow(
+                  color: AppColors.primary.withValues(alpha: 0.15),
+                  blurRadius: 20,
+                  offset: const Offset(0, 8),
+                ),
+              ],
+            ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // 拖动条
-                Center(
-                  child: Container(
-                    width: 40,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: AppColors.border,
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                // 标题 - 使用 P0 颜色
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.history, color: AppColors.priorityP0, size: 24),
-                    const SizedBox(width: 8),
-                    Text(
-                      tr('focus_history'),
-                      style: const TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.priorityP0,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 20),
-                // 统计卡片
+                // 提示图标
                 Container(
-                  padding: const EdgeInsets.all(16),
+                  width: 64,
+                  height: 64,
                   decoration: BoxDecoration(
-                    color: AppColors.cardBackground,
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(
-                      color: AppColors.primaryLight.withValues(alpha: 0.5),
-                      width: 1.5,
-                    ),
+                    color: AppColors.primary.withValues(alpha: 0.1),
+                    shape: BoxShape.circle,
                   ),
-                  child: Column(
-                    children: [
-                      // 总专注时长
-                      _buildStatRow(
-                        icon: Icons.access_time_filled,
-                        iconColor: AppColors.primary,
-                        label: tr('total_focus_time'),
-                        value: '$_totalFocusMinutes',
-                        unit: tr('min'),
-                      ),
-                      const SizedBox(height: 12),
-                      Divider(color: AppColors.border, height: 1),
-                      const SizedBox(height: 12),
-                      // 最长一次
-                      _buildStatRow(
-                        icon: Icons.emoji_events,
-                        iconColor: AppColors.warning,
-                        label: tr('longest_session'),
-                        value: '$_longestFocusMinutes',
-                        unit: tr('min'),
-                      ),
-                      const SizedBox(height: 12),
-                      Divider(color: AppColors.border, height: 1),
-                      const SizedBox(height: 12),
-                      // 专注次数
-                      _buildStatRow(
-                        icon: Icons.local_fire_department,
-                        iconColor: AppColors.error,
-                        label: tr('focus_sessions'),
-                        value: '$_focusCount',
-                        unit: tr('times'),
-                      ),
-                    ],
+                  child: Icon(
+                    icon,
+                    color: AppColors.primary,
+                    size: 32,
                   ),
                 ),
                 const SizedBox(height: 20),
-                // 关闭按钮 - P0 到 P1 渐变色，与添加子任务一致
-                GestureDetector(
-                  onTap: () {
-                    AudioService.instance.playButton();
-                    Navigator.pop(context);
-                  },
-                  child: Container(
-                    height: 48,
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [
-                          AppColors.priorityP0, // P0 red
-                          AppColors.priorityP1, // P1 pink
-                        ],
-                        begin: Alignment.centerLeft,
-                        end: Alignment.centerRight,
-                      ),
-                      borderRadius: BorderRadius.circular(24),
-                      boxShadow: [
-                        BoxShadow(
-                          color: AppColors.priorityP0.withValues(alpha: 0.3),
-                          blurRadius: 12,
-                          offset: const Offset(0, 4),
-                        ),
-                      ],
+                // 标题
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.textPrimary,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                if (subtitle != null) ...[
+                  const SizedBox(height: 12),
+                  // 副标题
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: AppColors.textSecondary.withValues(alpha: 0.8),
                     ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text(
-                          tr('close'),
-                          style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.white,
-                            letterSpacing: 0.5,
-                          ),
-                        ),
-                        const SizedBox(width: 4),
-                        const Icon(
-                          Icons.keyboard_arrow_down_rounded,
-                          size: 22,
-                          color: Colors.white,
-                        ),
-                      ],
+                    textAlign: TextAlign.center,
+                  ),
+                ],
+                const SizedBox(height: 24),
+                // 确认按钮
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () {
+                      AudioService.instance.playButton();
+                      Navigator.pop(dialogContext);
+                      onDismiss?.call();
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      elevation: 0,
+                    ),
+                    child: Text(
+                      tr('got_it'),
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                   ),
                 ),
               ],
             ),
           ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildStatRow({
-    required IconData icon,
-    required Color iconColor,
-    required String label,
-    required String value,
-    required String unit,
-  }) {
-    return Row(
-      children: [
-        Container(
-          width: 36,
-          height: 36,
-          decoration: BoxDecoration(
-            color: iconColor.withValues(alpha: 0.15),
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: Icon(icon, color: iconColor, size: 20),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Text(
-            label,
-            style: const TextStyle(
-              fontSize: 14,
-              color: AppColors.textSecondary,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-        ),
-        Text(
-          value,
-          style: const TextStyle(
-            fontSize: 20,
-            fontWeight: FontWeight.w700,
-            color: AppColors.priorityP0,
-            fontFeatures: [FontFeature.tabularFigures()],
-          ),
-        ),
-        const SizedBox(width: 4),
-        Text(
-          unit,
-          style: const TextStyle(
-            fontSize: 13,
-            color: AppColors.textHint,
-            fontWeight: FontWeight.w500,
-          ),
-        ),
-      ],
+        );
+      },
     );
   }
 
@@ -407,19 +364,9 @@ class _FocusPageState extends State<FocusPage> with TickerProviderStateMixin {
     AudioService.instance.playButton();
     // 不能在运行时修改时间
     if (_isRunning) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            tr('pause_first'),
-            style: const TextStyle(color: Colors.white),
-          ),
-          backgroundColor: AppColors.textSecondary,
-          duration: const Duration(seconds: 2),
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-        ),
+      _showInfoDialog(
+        icon: Icons.pause_circle_outline_rounded,
+        title: tr('pause_first'),
       );
       return;
     }
@@ -966,10 +913,12 @@ class _FocusPageState extends State<FocusPage> with TickerProviderStateMixin {
               Expanded(
                 flex: 2,
                 child: ElevatedButton.icon(
-                  onPressed: _toggleTimer,
+                  onPressed: _isStarting ? null : _toggleTimer,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.primary,
                     foregroundColor: Colors.white,
+                    disabledBackgroundColor: AppColors.primary.withValues(alpha: 0.5),
+                    disabledForegroundColor: Colors.white70,
                     padding: const EdgeInsets.symmetric(vertical: 14),
                     elevation: 0,
                     shadowColor: AppColors.primary.withValues(alpha: 0.4),
@@ -977,12 +926,25 @@ class _FocusPageState extends State<FocusPage> with TickerProviderStateMixin {
                       borderRadius: BorderRadius.circular(16),
                     ),
                   ),
-                  icon: Icon(
-                    _isRunning ? Icons.pause_rounded : Icons.play_arrow_rounded,
-                    size: 22,
-                  ),
+                  icon: _isStarting
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                          ),
+                        )
+                      : Icon(
+                          _isRunning ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                          size: 22,
+                        ),
                   label: Text(
-                    _isRunning ? tr('focus_pause') : tr('start_focus'),
+                    _isStarting
+                        ? tr('starting')
+                        : _isRunning
+                            ? tr('focus_pause')
+                            : tr('start_focus'),
                     style: const TextStyle(
                       fontSize: 15,
                       fontWeight: FontWeight.w600,
@@ -1066,9 +1028,284 @@ class FocusRecord {
   FocusRecord({required this.duration, required this.completedAt});
 }
 
+/// 专注历史统计浮层
+class _FocusHistorySheet extends StatefulWidget {
+  const _FocusHistorySheet();
 
+  @override
+  State<_FocusHistorySheet> createState() => _FocusHistorySheetState();
+}
 
+class _FocusHistorySheetState extends State<_FocusHistorySheet> {
+  bool _isLoading = true;
+  int _totalMinutes = 0;
+  int _totalHours = 0;
+  int _totalSeconds = 0;
 
+  @override
+  void initState() {
+    super.initState();
+    _loadTotalTime();
+  }
+
+  Future<void> _loadTotalTime() async {
+    final totalTime = await FocusService.instance.getTotalTime();
+    if (mounted) {
+      setState(() {
+        _totalSeconds = totalTime.totalSeconds;
+        _totalMinutes = totalTime.totalMinutes;
+        _totalHours = totalTime.totalHours;
+        _isLoading = false;
+      });
+    }
+  }
+
+  /// 格式化大数字，防止溢出屏幕
+  /// - < 10,000: 显示千位分隔符 (1,234)
+  /// - 10,000 ~ 999,999: 显示 K 格式 (12.3K)
+  /// - >= 1,000,000: 显示 M 格式 (1.2M)
+  String _formatNumber(int number) {
+    if (number < 10000) {
+      // 小于1万，显示千位分隔符
+      if (number < 1000) return number.toString();
+      final str = number.toString();
+      final buffer = StringBuffer();
+      final length = str.length;
+      for (int i = 0; i < length; i++) {
+        if (i > 0 && (length - i) % 3 == 0) {
+          buffer.write(',');
+        }
+        buffer.write(str[i]);
+      }
+      return buffer.toString();
+    } else if (number < 1000000) {
+      // 1万~99万，显示 K 格式
+      final k = number / 1000;
+      if (k >= 100) {
+        return '${k.toInt()}K'; // 100K, 999K
+      } else if (k >= 10) {
+        return '${k.toStringAsFixed(1).replaceAll(RegExp(r'\.0$'), '')}K'; // 10K, 12.3K
+      } else {
+        return '${k.toStringAsFixed(1)}K'; // 1.0K ~ 9.9K
+      }
+    } else {
+      // >= 100万，显示 M 格式
+      final m = number / 1000000;
+      if (m >= 100) {
+        return '${m.toInt()}M'; // 100M+
+      } else if (m >= 10) {
+        return '${m.toStringAsFixed(1).replaceAll(RegExp(r'\.0$'), '')}M'; // 10M, 12.3M
+      } else {
+        return '${m.toStringAsFixed(1)}M'; // 1.0M ~ 9.9M
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: const BoxDecoration(
+        color: AppColors.background,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      child: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // 拖动条
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: AppColors.border,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              // 标题
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.history, color: AppColors.priorityP0, size: 24),
+                  const SizedBox(width: 8),
+                  Text(
+                    tr('focus_history'),
+                    style: const TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.priorityP0,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 20),
+              // 统计卡片
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: AppColors.cardBackground,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(
+                    color: AppColors.primaryLight.withValues(alpha: 0.5),
+                    width: 1.5,
+                  ),
+                ),
+                child: _isLoading
+                    ? const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 24),
+                        child: Center(
+                          child: CircularProgressIndicator(
+                            color: AppColors.primary,
+                            strokeWidth: 2.5,
+                          ),
+                        ),
+                      )
+                    : Column(
+                        children: [
+                          // 总专注时长（分钟）
+                          _buildStatRow(
+                            icon: Icons.access_time_filled,
+                            iconColor: AppColors.primary,
+                            label: tr('total_focus_time'),
+                            value: _formatNumber(_totalMinutes),
+                            unit: tr('min'),
+                          ),
+                          const SizedBox(height: 12),
+                          Divider(color: AppColors.border, height: 1),
+                          const SizedBox(height: 12),
+                          // 总专注时长（小时）
+                          _buildStatRow(
+                            icon: Icons.emoji_events,
+                            iconColor: AppColors.warning,
+                            label: tr('total_focus_hours'),
+                            value: _formatNumber(_totalHours),
+                            unit: tr('hours'),
+                          ),
+                          const SizedBox(height: 12),
+                          Divider(color: AppColors.border, height: 1),
+                          const SizedBox(height: 12),
+                          // 总专注秒数
+                          _buildStatRow(
+                            icon: Icons.local_fire_department,
+                            iconColor: AppColors.error,
+                            label: tr('total_focus_seconds'),
+                            value: _formatNumber(_totalSeconds),
+                            unit: tr('sec'),
+                          ),
+                        ],
+                      ),
+              ),
+              const SizedBox(height: 20),
+              // 关闭按钮
+              GestureDetector(
+                onTap: () {
+                  AudioService.instance.playButton();
+                  Navigator.pop(context);
+                },
+                child: Container(
+                  height: 48,
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [
+                        AppColors.priorityP0,
+                        AppColors.priorityP1,
+                      ],
+                      begin: Alignment.centerLeft,
+                      end: Alignment.centerRight,
+                    ),
+                    borderRadius: BorderRadius.circular(24),
+                    boxShadow: [
+                      BoxShadow(
+                        color: AppColors.priorityP0.withValues(alpha: 0.3),
+                        blurRadius: 12,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        tr('close'),
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.white,
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      const Icon(
+                        Icons.keyboard_arrow_down_rounded,
+                        size: 22,
+                        color: Colors.white,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStatRow({
+    required IconData icon,
+    required Color iconColor,
+    required String label,
+    required String value,
+    required String unit,
+  }) {
+    return Row(
+      children: [
+        Container(
+          width: 36,
+          height: 36,
+          decoration: BoxDecoration(
+            color: iconColor.withValues(alpha: 0.15),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Icon(icon, color: iconColor, size: 20),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Text(
+            label,
+            style: const TextStyle(
+              fontSize: 14,
+              color: AppColors.textSecondary,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ),
+        Text(
+          value,
+          style: const TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.w700,
+            color: AppColors.priorityP0,
+            fontFeatures: [FontFeature.tabularFigures()],
+          ),
+        ),
+        const SizedBox(width: 4),
+        Text(
+          unit,
+          style: const TextStyle(
+            fontSize: 13,
+            color: AppColors.textHint,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+      ],
+    );
+  }
+}
 
 
 

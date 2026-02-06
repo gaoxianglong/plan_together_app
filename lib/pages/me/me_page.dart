@@ -116,17 +116,341 @@ class _MePageState extends State<MePage> {
     });
   }
 
-  void _saveNickname() {
+  void _saveNickname() async {
     final newNickname = _nicknameController.text.trim();
-    if (newNickname.isNotEmpty && newNickname.length <= 20) {
+    if (newNickname.length > 20) {
+      // 超过最大限制，弹出浮层提示
+      _nicknameController.text = _nickname;
+      setState(() => _isEditingNickname = false);
+      _showNicknameTooLongDialog();
+      return;
+    }
+    if (newNickname.isEmpty) {
+      // 空昵称，恢复原值
+      _nicknameController.text = _nickname;
+      setState(() => _isEditingNickname = false);
+      return;
+    }
+    
+    // 昵称未变化，无需请求
+    if (newNickname == _nickname) {
+      setState(() => _isEditingNickname = false);
+      return;
+    }
+    
+    setState(() => _isEditingNickname = false);
+    
+    // 调用后端 API 更新昵称
+    final result = await AuthService.instance.updateProfile(
+      nickname: newNickname,
+    );
+    
+    if (result.isSuccess) {
+      // API 成功后更新本地存储
       NicknameService.instance.setNickname(newNickname);
     } else {
-      // Reset to current nickname if invalid
+      // 更新失败，恢复原昵称
       _nicknameController.text = _nickname;
+      if (mounted) {
+        if (result.errorCode == 5002) {
+          // 昵称修改次数达到上限，弹出浮层提示
+          _showNicknameTooFrequentDialog();
+        } else {
+          _showInfoDialog(
+            icon: Icons.error_outline_rounded,
+            title: tr('nickname_update_failed'),
+            subtitle: result.errorMessage ?? tr('network_error'),
+          );
+        }
+      }
     }
-    setState(() {
-      _isEditingNickname = false;
-    });
+  }
+
+  /// 显示统一风格的提示浮层
+  void _showInfoDialog({
+    required IconData icon,
+    required String title,
+    String? subtitle,
+  }) {
+    showDialog(
+      context: context,
+      builder: (dialogContext) {
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          child: Container(
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: AppColors.cardBackground,
+              borderRadius: BorderRadius.circular(24),
+              boxShadow: [
+                BoxShadow(
+                  color: AppColors.primary.withValues(alpha: 0.15),
+                  blurRadius: 20,
+                  offset: const Offset(0, 8),
+                ),
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 64,
+                  height: 64,
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withValues(alpha: 0.1),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(icon, color: AppColors.primary, size: 32),
+                ),
+                const SizedBox(height: 20),
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.textPrimary,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                if (subtitle != null) ...[
+                  const SizedBox(height: 12),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: AppColors.textSecondary.withValues(alpha: 0.8),
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
+                const SizedBox(height: 24),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () {
+                      AudioService.instance.playButton();
+                      Navigator.pop(dialogContext);
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      elevation: 0,
+                    ),
+                    child: Text(
+                      tr('got_it'),
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  /// 显示昵称超过最大限制的提示浮层
+  void _showNicknameTooLongDialog() {
+    showDialog(
+      context: context,
+      builder: (dialogContext) {
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          child: Container(
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: AppColors.cardBackground,
+              borderRadius: BorderRadius.circular(24),
+              boxShadow: [
+                BoxShadow(
+                  color: AppColors.primary.withValues(alpha: 0.15),
+                  blurRadius: 20,
+                  offset: const Offset(0, 8),
+                ),
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // 提示图标
+                Container(
+                  width: 64,
+                  height: 64,
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        AppColors.primary.withValues(alpha: 0.2),
+                        AppColors.primary.withValues(alpha: 0.1),
+                      ],
+                    ),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.info_outline_rounded,
+                    color: AppColors.primary,
+                    size: 36,
+                  ),
+                ),
+                const SizedBox(height: 20),
+                // 标题
+                Text(
+                  tr('nickname_too_long_title'),
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.textPrimary,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 12),
+                // 副标题
+                Text(
+                  tr('nickname_too_long_desc'),
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: AppColors.textSecondary.withValues(alpha: 0.8),
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 24),
+                // 确认按钮
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () {
+                      AudioService.instance.playButton();
+                      Navigator.pop(dialogContext);
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      elevation: 0,
+                    ),
+                    child: Text(
+                      tr('got_it'),
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  /// 显示昵称修改次数达到上限的提示浮层
+  void _showNicknameTooFrequentDialog() {
+    showDialog(
+      context: context,
+      builder: (dialogContext) {
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          child: Container(
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: AppColors.cardBackground,
+              borderRadius: BorderRadius.circular(24),
+              boxShadow: [
+                BoxShadow(
+                  color: AppColors.primary.withValues(alpha: 0.15),
+                  blurRadius: 20,
+                  offset: const Offset(0, 8),
+                ),
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // 提示图标
+                Container(
+                  width: 64,
+                  height: 64,
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withValues(alpha: 0.1),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.edit_off_rounded,
+                    color: AppColors.primary,
+                    size: 32,
+                  ),
+                ),
+                const SizedBox(height: 20),
+                // 标题
+                Text(
+                  tr('nickname_change_limit_title'),
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.textPrimary,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 12),
+                // 副标题
+                Text(
+                  tr('error_nickname_too_frequent'),
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: AppColors.textSecondary.withValues(alpha: 0.8),
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 24),
+                // 确认按钮
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () {
+                      AudioService.instance.playButton();
+                      Navigator.pop(dialogContext);
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      elevation: 0,
+                    ),
+                    child: Text(
+                      tr('got_it'),
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 
   void _handleLogout(BuildContext context) {
@@ -238,15 +562,11 @@ class _MePageState extends State<MePage> {
                               } catch (e) {
                                 if (dialogContext.mounted) {
                                   setDialogState(() => isLoggingOut = false);
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(
-                                      content: Text(tr('network_error')),
-                                      backgroundColor: AppColors.error,
-                                      behavior: SnackBarBehavior.floating,
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(8),
-                                      ),
-                                    ),
+                                  Navigator.pop(dialogContext);
+                                  _showInfoDialog(
+                                    icon: Icons.error_outline_rounded,
+                                    title: tr('logout_failed'),
+                                    subtitle: tr('network_error'),
                                   );
                                 }
                               }
@@ -586,9 +906,30 @@ class _MePageState extends State<MePage> {
       builder: (context) => _AvatarSelectionSheet(
         selectedAvatar: _selectedAvatar,
         onAvatarSelected: (avatar) async {
-          await AvatarService.instance.setAvatar(avatar);
-          if (mounted) {
-            Navigator.pop(context);
+          // 提取文件名用于 API 传输
+          final avatarFilename = AvatarService.assetPathToFilename(avatar);
+          
+          // 调用后端 API 更新头像
+          final result = await AuthService.instance.updateProfile(
+            avatar: avatarFilename,
+          );
+          
+          if (result.isSuccess) {
+            // API 成功后更新本地存储
+            await AvatarService.instance.setAvatar(avatar);
+            if (mounted) {
+              Navigator.pop(context);
+            }
+          } else {
+            // 更新失败，显示错误浮层
+            if (mounted) {
+              Navigator.pop(context);
+              _showInfoDialog(
+                icon: Icons.error_outline_rounded,
+                title: tr('avatar_update_failed'),
+                subtitle: result.errorMessage ?? tr('network_error'),
+              );
+            }
           }
         },
       ),
@@ -789,6 +1130,98 @@ class _DeviceManagementSheetState extends State<_DeviceManagementSheet> {
     _loadDevices();
   }
 
+  /// 显示统一风格的提示浮层
+  void _showInfoDialog({
+    required IconData icon,
+    required String title,
+    String? subtitle,
+  }) {
+    showDialog(
+      context: context,
+      builder: (dialogContext) {
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          child: Container(
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: AppColors.cardBackground,
+              borderRadius: BorderRadius.circular(24),
+              boxShadow: [
+                BoxShadow(
+                  color: AppColors.primary.withValues(alpha: 0.15),
+                  blurRadius: 20,
+                  offset: const Offset(0, 8),
+                ),
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 64,
+                  height: 64,
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withValues(alpha: 0.1),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(icon, color: AppColors.primary, size: 32),
+                ),
+                const SizedBox(height: 20),
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.textPrimary,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                if (subtitle != null) ...[
+                  const SizedBox(height: 12),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: AppColors.textSecondary.withValues(alpha: 0.8),
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
+                const SizedBox(height: 24),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () {
+                      AudioService.instance.playButton();
+                      Navigator.pop(dialogContext);
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      elevation: 0,
+                    ),
+                    child: Text(
+                      tr('got_it'),
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   Future<void> _loadDevices() async {
     setState(() {
       _isLoading = true;
@@ -927,17 +1360,12 @@ class _DeviceManagementSheetState extends State<_DeviceManagementSheet> {
                                   });
                                 }
                               } else {
-                                // 踢出失败，显示错误信息
+                                // 踢出失败，显示错误浮层
                                 if (mounted) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(
-                                      content: Text(result.errorMessage ?? tr('network_error')),
-                                      backgroundColor: AppColors.error,
-                                      behavior: SnackBarBehavior.floating,
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(8),
-                                      ),
-                                    ),
+                                  _showInfoDialog(
+                                    icon: Icons.error_outline_rounded,
+                                    title: tr('device_kick_failed'),
+                                    subtitle: result.errorMessage ?? tr('network_error'),
                                   );
                                 }
                               }

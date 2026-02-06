@@ -10,6 +10,7 @@ import 'services/avatar_service.dart';
 import 'services/nickname_service.dart';
 import 'services/locale_service.dart';
 import 'services/device_service.dart';
+import 'services/focus_service.dart';
 import 'services/api_client.dart';
 
 /// 全局导航 Key，用于在非 Widget 上下文中进行导航（如 401 自动跳转登录页）
@@ -36,6 +37,7 @@ void main() async {
   await AudioService.instance.initialize();
   await AvatarService.instance.initialize();
   await NicknameService.instance.initialize();
+  await FocusService.instance.initialize();
 
   runApp(const MaidenPlanApp());
 }

@@ -7,6 +7,9 @@ class AvatarService {
   static final AvatarService instance = AvatarService._();
 
   static const String _avatarKey = 'selected_avatar';
+  
+  /// Asset 目录前缀
+  static const String _assetPrefix = 'assets/images/avatars/';
 
   // Available avatars in assets/images/avatars/ (20 avatars)
   static const List<String> availableAvatars = [
@@ -37,6 +40,9 @@ class AvatarService {
 
   // Default avatar
   static const String defaultAvatar = 'assets/images/avatars/avatar26.svg';
+  
+  /// 默认头像文件名（用于 API 传输）
+  static const String defaultAvatarFilename = 'avatar26.svg';
 
   // Stream controller for avatar changes
   final _avatarController = StreamController<String?>.broadcast();
@@ -65,6 +71,28 @@ class AvatarService {
   /// Clear the selected avatar
   Future<void> clearAvatar() async {
     await setAvatar(null);
+  }
+  
+  /// 从 asset 完整路径提取文件名（用于 API 传输）
+  /// 例: 'assets/images/avatars/avatar40.svg' → 'avatar40.svg'
+  static String assetPathToFilename(String assetPath) {
+    return assetPath.replaceFirst(_assetPrefix, '');
+  }
+  
+  /// 从文件名转换为 asset 完整路径（用于本地加载）
+  /// 例: 'avatar40.svg' → 'assets/images/avatars/avatar40.svg'
+  static String filenameToAssetPath(String filename) {
+    // 如果已经是完整路径则直接返回
+    if (filename.startsWith(_assetPrefix)) {
+      return filename;
+    }
+    return '$_assetPrefix$filename';
+  }
+  
+  /// 验证文件名是否为有效的预设头像
+  static bool isValidAvatarFilename(String filename) {
+    final assetPath = filenameToAssetPath(filename);
+    return availableAvatars.contains(assetPath);
   }
 
   void dispose() {

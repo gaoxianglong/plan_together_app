@@ -1086,14 +1086,14 @@
 **请求参数**：
 ```json
 {
-  "duration": 25,
-  "type": "WORK"
+  "durationSeconds": 1500,
+  "type": "OTHER"
 }
 ```
 
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| duration | int | 是 | 时长（分钟），可选值：15/25/30/45/60 |
+| durationSeconds | int | 是 | 时长（秒），范围 600 ~ 3600（即 10 ~ 60 分钟） |
 | type | string | 是 | 类型：WORK/STUDY/READING/CODING/EXERCISE/MEDITATION/OTHER |
 
 **响应示例**：
@@ -1103,7 +1103,7 @@
   "message": "success",
   "data": {
     "sessionId": "session-uuid",
-    "duration": 25,
+    "durationSeconds": 1500,
     "type": "WORK",
     "startAt": "2026-01-27T10:00:00.000Z",
     "expectedEndAt": "2026-01-27T10:25:00.000Z"
@@ -1167,7 +1167,7 @@
 **计入规则**：
 - 自然结束：计入全部时长
 - 手动结束：
-  - `elapsedSeconds / (duration * 60) >= 50%`：计入已完成时长
+  - `elapsedSeconds / durationSeconds >= 50%`：计入已完成时长
   - `< 50%`：不计入
 
 **幂等要求**：幂等

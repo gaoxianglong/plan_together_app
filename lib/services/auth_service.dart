@@ -2,8 +2,10 @@ import 'dart:async';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../config/api_config.dart';
 import 'api_client.dart';
+import 'avatar_service.dart';
 import 'device_service.dart';
 import 'locale_service.dart';
+import 'nickname_service.dart';
 
 /// 用户信息模型
 class UserInfo {
@@ -129,6 +131,56 @@ class DeviceListResult {
       );
 
   factory DeviceListResult.failure(String message) => DeviceListResult._(
+        isSuccess: false,
+        errorMessage: message,
+      );
+}
+
+/// 用户信息查询结果
+class UserProfileResult {
+  final bool isSuccess;
+  final String? nickname;
+  final String? avatar;
+  final String? ipLocation;
+  final int? consecutiveDays;
+  final String? lastCheckInDate;
+  final int? nicknameModifyCount;
+  final String? nicknameNextModifyAt;
+  final String? errorMessage;
+
+  UserProfileResult._({
+    required this.isSuccess,
+    this.nickname,
+    this.avatar,
+    this.ipLocation,
+    this.consecutiveDays,
+    this.lastCheckInDate,
+    this.nicknameModifyCount,
+    this.nicknameNextModifyAt,
+    this.errorMessage,
+  });
+
+  factory UserProfileResult.success({
+    String? nickname,
+    String? avatar,
+    String? ipLocation,
+    int? consecutiveDays,
+    String? lastCheckInDate,
+    int? nicknameModifyCount,
+    String? nicknameNextModifyAt,
+  }) =>
+      UserProfileResult._(
+        isSuccess: true,
+        nickname: nickname,
+        avatar: avatar,
+        ipLocation: ipLocation,
+        consecutiveDays: consecutiveDays,
+        lastCheckInDate: lastCheckInDate,
+        nicknameModifyCount: nicknameModifyCount,
+        nicknameNextModifyAt: nicknameNextModifyAt,
+      );
+
+  factory UserProfileResult.failure(String message) => UserProfileResult._(
         isSuccess: false,
         errorMessage: message,
       );
@@ -496,6 +548,92 @@ class AuthService {
         _getErrorMessage(response.code, response.message),
         errorCode: response.code,
       );
+    }
+  }
+
+  /// 更新用户信息（昵称/头像）
+  /// PUT /api/v1/user/profile
+  Future<AuthResult> updateProfile({
+    String? nickname,
+    String? avatar,
+  }) async {
+    // 至少需要一个字段
+    if (nickname == null && avatar == null) {
+      return AuthResult.failure(tr('error_bad_request'), errorCode: 400);
+    }
+
+    // 昵称校验
+    if (nickname != null) {
+      if (nickname.isEmpty || nickname.length > 20) {
+        return AuthResult.failure(tr('nickname_length_invalid'), errorCode: -1);
+      }
+    }
+
+    final body = <String, dynamic>{};
+    if (nickname != null) body['nickname'] = nickname;
+    if (avatar != null) body['avatar'] = avatar;
+
+    final response = await ApiClient.instance.put<Map<String, dynamic>>(
+      '/user/profile',
+      body: body,
+      requireAuth: true,
+      idempotent: true,
+      fromJsonT: (data) => data as Map<String, dynamic>,
+    );
+
+    if (response.isSuccess) {
+      return AuthResult.success();
+    } else {
+      return AuthResult.failure(
+        _getErrorMessage(response.code, response.message),
+        errorCode: response.code,
+      );
+    }
+  }
+
+  /// 查询用户信息
+  /// GET /api/v1/user/profile
+  Future<UserProfileResult> getUserProfile() async {
+    final response = await ApiClient.instance.get<Map<String, dynamic>>(
+      '/user/profile',
+      requireAuth: true,
+      fromJsonT: (data) => data as Map<String, dynamic>,
+    );
+
+    if (response.isSuccess && response.data != null) {
+      final data = response.data!;
+      return UserProfileResult.success(
+        nickname: data['nickname'] as String?,
+        avatar: data['avatar'] as String?,
+        ipLocation: data['ipLocation'] as String?,
+        consecutiveDays: data['consecutiveDays'] as int?,
+        lastCheckInDate: data['lastCheckInDate'] as String?,
+        nicknameModifyCount: data['nicknameModifyCount'] as int?,
+        nicknameNextModifyAt: data['nicknameNextModifyAt'] as String?,
+      );
+    } else {
+      return UserProfileResult.failure(
+        _getErrorMessage(response.code, response.message),
+      );
+    }
+  }
+
+  /// 拉取用户信息并同步到本地
+  /// 登录成功后调用，更新本地的昵称和头像
+  Future<void> fetchAndSyncUserProfile() async {
+    final result = await getUserProfile();
+    if (result.isSuccess) {
+      // 同步昵称
+      if (result.nickname != null && result.nickname!.isNotEmpty) {
+        await NicknameService.instance.setNickname(result.nickname!);
+      }
+      // 同步头像（后端存储的是文件名，需要转换为本地 asset 路径）
+      if (result.avatar != null && result.avatar!.isNotEmpty) {
+        final assetPath = AvatarService.filenameToAssetPath(result.avatar!);
+        if (AvatarService.isValidAvatarFilename(result.avatar!)) {
+          await AvatarService.instance.setAvatar(assetPath);
+        }
+      }
     }
   }
 
