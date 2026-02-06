@@ -192,15 +192,18 @@ class _TaskCardState extends State<TaskCard>
 
   Widget _buildMainTaskRow(Color priorityColor) {
     return Row(
-      crossAxisAlignment: CrossAxisAlignment.center,
+      crossAxisAlignment: CrossAxisAlignment.start, // 改为顶部对齐，支持多行文本
       children: [
-        // Checkbox
-        _buildCheckbox(
-          isChecked: widget.task.isCompleted,
-          onTap: widget.onToggleComplete,
+        // Checkbox - 加点上边距让它与第一行文字对齐
+        Padding(
+          padding: const EdgeInsets.only(top: 2),
+          child: _buildCheckbox(
+            isChecked: widget.task.isCompleted,
+            onTap: widget.onToggleComplete,
+          ),
         ),
         const SizedBox(width: 8),
-        // Task content with animation
+        // Task content with animation - 允许多行显示
         Expanded(
           child: AnimatedDefaultTextStyle(
             duration: const Duration(milliseconds: 200),
@@ -217,46 +220,49 @@ class _TaskCardState extends State<TaskCard>
             ),
             child: Text(
               widget.task.title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
+              // 移除 maxLines 和 overflow，允许文字换行显示
             ),
           ),
         ),
         // Subtask icon (only shown when task has subtasks)
         if (widget.task.hasSubTasks) ...[
           const SizedBox(width: 4),
-          GestureDetector(
-            onTap: () {
-              // Close swipe first if open
-              if (_isSwipedOpen) {
-                _closeSwipe();
-              }
-              widget.onShowSubtasks?.call();
-            },
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-              decoration: BoxDecoration(
-                color: priorityColor.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    Icons.format_list_bulleted,
-                    size: 12,
-                    color: priorityColor.withValues(alpha: 0.8),
-                  ),
-                  const SizedBox(width: 3),
-                  Text(
-                    '${widget.task.subTasks.where((s) => s.isCompleted).length}/${widget.task.subTasks.length}',
-                    style: TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w500,
+          // 加点上边距让图标与第一行文字对齐
+          Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: GestureDetector(
+              onTap: () {
+                // Close swipe first if open
+                if (_isSwipedOpen) {
+                  _closeSwipe();
+                }
+                widget.onShowSubtasks?.call();
+              },
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: priorityColor.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.format_list_bulleted,
+                      size: 12,
                       color: priorityColor.withValues(alpha: 0.8),
                     ),
-                  ),
-                ],
+                    const SizedBox(width: 3),
+                    Text(
+                      '${widget.task.subTasks.where((s) => s.isCompleted).length}/${widget.task.subTasks.length}',
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w500,
+                        color: priorityColor.withValues(alpha: 0.8),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),

@@ -150,7 +150,7 @@ class _AddTaskSheetState extends State<AddTaskSheet>
       return;
     }
 
-    if (title.length > 100) {
+    if (title.length > 40) {
       _showInfoDialog(tr('task_name_too_long'));
       return;
     }
@@ -355,7 +355,7 @@ class _AddTaskSheetState extends State<AddTaskSheet>
                     focusedBorder: InputBorder.none,
                     contentPadding: const EdgeInsets.fromLTRB(4, 12, 4, 8),
                   ),
-                  maxLength: 100,
+                  maxLength: 40,
                   maxLines: 2,
                   minLines: 1,
                   onChanged: (_) {

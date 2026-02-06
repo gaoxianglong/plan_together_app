@@ -65,6 +65,15 @@ class _AddSubtaskSheetState extends State<AddSubtaskSheet>
 
   void _finishEditingParentTitle() {
     final newTitle = _parentTitleController.text.trim();
+    if (newTitle.length > 40) {
+      // 超过40字符限制，恢复原标题并提示
+      _parentTitleController.text = widget.parentTask.title;
+      setState(() {
+        _isEditingParentTitle = false;
+      });
+      _showInfoDialog(tr('task_name_too_long'));
+      return;
+    }
     if (newTitle.isNotEmpty && newTitle != widget.parentTask.title) {
       widget.onParentTaskTitleChanged?.call(newTitle);
     } else if (newTitle.isEmpty) {
@@ -163,7 +172,7 @@ class _AddSubtaskSheetState extends State<AddSubtaskSheet>
       return;
     }
 
-    if (title.length > 100) {
+    if (title.length > 40) {
       _showInfoDialog(tr('subtask_name_too_long'));
       return;
     }
@@ -341,7 +350,9 @@ class _AddSubtaskSheetState extends State<AddSubtaskSheet>
                           isDense: true,
                           contentPadding: EdgeInsets.zero,
                           border: InputBorder.none,
+                          counterText: '', // 隐藏字符计数器
                         ),
+                        maxLength: 40,
                         maxLines: 1,
                         onSubmitted: (_) => _finishEditingParentTitle(),
                       )
@@ -432,7 +443,7 @@ class _AddSubtaskSheetState extends State<AddSubtaskSheet>
                     focusedBorder: InputBorder.none,
                     contentPadding: const EdgeInsets.fromLTRB(4, 12, 4, 8),
                   ),
-                  maxLength: 100,
+                  maxLength: 40,
                   maxLines: 2,
                   minLines: 1,
                   onTap: () {

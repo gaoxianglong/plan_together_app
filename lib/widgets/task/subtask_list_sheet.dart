@@ -457,6 +457,15 @@ class _SubtaskItemState extends State<_SubtaskItem>
 
   void _finishEditing() {
     final newTitle = _titleController.text.trim();
+    if (newTitle.length > 40) {
+      // 超过40字符限制，恢复原标题并提示
+      _titleController.text = widget.subtask.title;
+      setState(() {
+        _isEditing = false;
+      });
+      _showInfoDialog(tr('subtask_name_too_long'));
+      return;
+    }
     if (newTitle.isNotEmpty && newTitle != widget.subtask.title) {
       widget.onTitleChanged?.call(newTitle);
     } else if (newTitle.isEmpty) {
@@ -466,6 +475,86 @@ class _SubtaskItemState extends State<_SubtaskItem>
     setState(() {
       _isEditing = false;
     });
+  }
+
+  void _showInfoDialog(String message) {
+    showDialog(
+      context: context,
+      builder: (dialogContext) {
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          child: Container(
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: AppColors.cardBackground,
+              borderRadius: BorderRadius.circular(20),
+              boxShadow: [
+                BoxShadow(
+                  color: AppColors.primary.withValues(alpha: 0.15),
+                  blurRadius: 20,
+                  offset: const Offset(0, 8),
+                ),
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 64,
+                  height: 64,
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withValues(alpha: 0.1),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.info_outline_rounded,
+                    color: AppColors.primary,
+                    size: 32,
+                  ),
+                ),
+                const SizedBox(height: 20),
+                Text(
+                  message,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: 24),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () {
+                      AudioService.instance.playButton();
+                      Navigator.pop(dialogContext);
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      elevation: 0,
+                    ),
+                    child: Text(
+                      tr('got_it'),
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 
   @override
@@ -628,7 +717,9 @@ class _SubtaskItemState extends State<_SubtaskItem>
                                     isDense: true,
                                     contentPadding: EdgeInsets.zero,
                                     border: InputBorder.none,
+                                    counterText: '', // 隐藏字符计数器
                                   ),
+                                  maxLength: 40,
                                   maxLines: 1,
                                   onSubmitted: (_) => _finishEditing(),
                                 )
