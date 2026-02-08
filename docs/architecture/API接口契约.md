@@ -492,7 +492,7 @@
 
 ### 3.1 查询任务列表（按日期）
 
-**接口描述**：查询指定日期的四象限任务列表
+**接口描述**：查询指定日期的四象限任务列表（自动展开重复任务）
 
 **接口路径**：`GET /api/v1/tasks`
 
@@ -510,11 +510,11 @@
   "code": 0,
   "message": "success",
   "data": {
-    "date": "2026-01-27",
+    "date": "2026-02-10",
     "hasUncheckedTasks": {
       "P0": true,
-      "P1": false,
-      "P2": true,
+      "P1": true,
+      "P2": false,
       "P3": false
     },
     "tasks": {
@@ -524,26 +524,32 @@
           "title": "完成产品需求评审",
           "priority": "P0",
           "status": "INCOMPLETE",
-          "date": "2026-01-27",
-          "createdAt": "2026-01-27T09:00:00.000Z",
+          "date": "2026-02-10",
+          "createdAt": "2026-02-10T09:00:00.000Z",
           "completedAt": null,
           "repeatType": "NONE",
           "repeatConfig": null,
           "isRepeatInstance": false,
           "repeatParentId": null,
-          "subTasks": [
-            {
-              "id": "subtask-uuid-1",
-              "parentId": "task-uuid-1",
-              "title": "准备演示文档",
-              "status": "COMPLETED",
-              "repeatType": "NONE",
-              "completedAt": "2026-01-27T10:00:00.000Z"
-            }
-          ]
+          "subTasks": []
         }
       ],
-      "P1": [],
+      "P1": [
+        {
+          "id": "abc-def-123_2026-02-10",
+          "title": "早起跑步",
+          "priority": "P1",
+          "status": "INCOMPLETE",
+          "date": "2026-02-10",
+          "createdAt": "2026-02-08T09:00:00.000Z",
+          "completedAt": null,
+          "repeatType": "DAILY",
+          "repeatConfig": null,
+          "isRepeatInstance": true,
+          "repeatParentId": "abc-def-123",
+          "subTasks": []
+        }
+      ],
       "P2": [],
       "P3": []
     }
@@ -554,6 +560,29 @@
 **说明**：
 - `hasUncheckedTasks`：各象限是否有未完成任务（用于日历小圆点展示）
 - `tasks`：按象限分组的任务列表，同象限内按创建时间升序排列
+- 重复任务采用**虚拟展开**机制：数据库只存 1 条模板，查询时动态计算匹配日期生成虚拟任务
+- 虚拟任务的 `id` 格式为 `{模板ID}_{日期}`，实例任务的 `id` 为纯 UUID
+
+**查询内部逻辑**：
+1. 查询 `date=D` 的所有实例任务（普通任务 + 已实例化的重复任务）
+2. 查询所有重复模板（`repeat_type != NONE`, `is_repeat_instance = 0`, `date <= D`）
+3. 对每个模板匹配日期 D（DAILY/WEEKLY/MONTHLY 规则）
+4. 排除已有实例的模板，为匹配的模板生成虚拟任务
+5. 合并实例任务 + 虚拟任务返回
+
+**前端识别规则**：
+
+| 类型 | ID 格式 | isRepeatInstance | repeatParentId |
+|------|---------|-----------------|----------------|
+| 普通任务 | `{uuid}` | false | null |
+| 重复模板 | `{uuid}` | false | null |
+| 虚拟任务（未操作） | `{uuid}_{YYYY-MM-DD}` | true | 模板 UUID |
+| 实例任务（已操作） | `{uuid}` | true | 模板 UUID |
+
+**虚拟任务操作规则**：
+- 前端对虚拟任务执行操作（完成/编辑/删除）时，直接调用对应接口传虚拟 ID
+- 后端自动实例化后执行操作，返回新的实例 ID
+- 前端收到响应后用新 ID 替换虚拟 ID
 
 ---
 
@@ -572,9 +601,10 @@
 {
   "title": "早起跑步",
   "priority": "P1",
-  "date": "2026-01-27",
+  "date": "2026-02-08",
   "repeatType": "DAILY",
-  "repeatConfig": null
+  "repeatConfig": null,
+  "repeatEndDate": null
 }
 ```
 
@@ -585,6 +615,7 @@
 | date | string | 是 | 归属日期，YYYY-MM-DD，范围：今天-365天 ~ 今天+365天 |
 | repeatType | string | 否 | 重复类型：NONE/DAILY/WEEKLY/MONTHLY，默认 NONE |
 | repeatConfig | object | 否 | 重复配置（见下方说明） |
+| repeatEndDate | string | 否 | 重复结束日期，YYYY-MM-DD，为空表示永久重复 |
 
 **重复配置说明**：
 
@@ -612,14 +643,18 @@
     "title": "早起跑步",
     "priority": "P1",
     "status": "INCOMPLETE",
-    "date": "2026-01-27",
+    "date": "2026-02-08",
     "repeatType": "DAILY",
     "repeatConfig": null,
-    "createdAt": "2026-01-27T09:00:00.000Z",
-    "generatedInstancesCount": 365
+    "repeatEndDate": null,
+    "createdAt": "2026-02-08T09:00:00.000Z"
   }
 }
 ```
+
+**说明**：
+- 重复任务只创建 1 条模板记录，不预生成实例
+- 创建后，查询 `date >= 2026-02-08` 的任何日期都能看到该任务（虚拟展开）
 
 **错误码**：
 - `3001`：任务标题为空或超长
@@ -631,7 +666,50 @@
 
 ---
 
-### 3.3 更新任务
+### 3.3 实例化虚拟任务
+
+**接口描述**：将重复任务的虚拟任务持久化为实例（后端操作接口也会自动调用）
+
+**接口路径**：`POST /api/v1/tasks/{taskId}/materialize`
+
+**请求头**：
+- `Authorization: Bearer {access_token}`
+
+**路径参数**：
+- `taskId`：虚拟任务 ID（格式 `{模板ID}_{YYYY-MM-DD}`）
+
+**响应示例**：
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "id": "new-instance-uuid",
+    "title": "早起跑步",
+    "priority": "P1",
+    "status": "INCOMPLETE",
+    "date": "2026-02-10",
+    "repeatType": "DAILY",
+    "repeatConfig": null,
+    "isRepeatInstance": true,
+    "repeatParentId": "abc-def-123",
+    "createdAt": "2026-02-10T08:00:00.000Z"
+  }
+}
+```
+
+**说明**：
+- 若已有实例存在（已实例化过），直接返回已有实例
+- 若 taskId 不是虚拟格式或模板不存在，返回 `3006`
+- 其他接口（更新/完成/删除）传入虚拟 ID 时会自动调用本逻辑，无需前端显式调用
+
+**错误码**：
+- `3006`：父任务不存在
+- `3008`：虚拟任务 ID 格式错误
+
+---
+
+### 3.4 更新任务
 
 **接口描述**：更新任务信息（标题、优先级、日期、重复设置）
 
@@ -642,7 +720,7 @@
 - `X-Request-Id: {uuid}`（幂等）
 
 **路径参数**：
-- `taskId`：任务 ID
+- `taskId`：任务 ID（支持模板 ID、虚拟 ID、实例 ID）
 
 **请求参数**：
 ```json
@@ -661,8 +739,8 @@
 |------|------|------|------|
 | title | string | 否 | 任务标题 |
 | priority | string | 否 | 优先级 |
-| date | string | 否 | 归属日期 |
-| repeatType | string | 否 | 重复类型 |
+| date | string | 否 | 归属日期（修改重复时作为新起始日期） |
+| repeatType | string | 否 | 重复类型：NONE/DAILY/WEEKLY/MONTHLY |
 | repeatConfig | object | 否 | 重复配置 |
 
 **响应示例**：
@@ -671,28 +749,41 @@
   "code": 0,
   "message": "success",
   "data": {
-    "id": "task-uuid",
+    "id": "template-task-uuid",
     "title": "早起跑步（更新）",
     "priority": "P0",
-    "date": "2026-01-28",
+    "date": "2026-02-08",
     "repeatType": "WEEKLY",
     "repeatConfig": {
       "weekdays": [1, 3, 5]
     },
-    "updatedAt": "2026-01-27T10:00:00.000Z"
+    "updatedAt": "2026-02-08T10:00:00.000Z"
   }
 }
 ```
 
-**说明**：
-- 修改重复规则仅影响未来副本，已生成的副本不受影响
-- 若修改归属日期，任务会移动到新日期
+**不修改重复设置时**（仅修改 title/priority/date）：
+- 若 `taskId` 为虚拟 ID，后端自动实例化后更新，响应返回新实例 ID
+- 修改实例任务仅影响该实例，不影响模板和其他日期
+
+**修改重复设置时**（传入 `repeatType`）：
+- 支持传入任意 ID 类型（模板 ID、虚拟 ID、实例 ID），后端自动定位到模板任务进行修改
+- 新重复规则从生效日期开始，只影响未来日期，已完成的历史实例不受影响
+- 生效日期规则：传入 `date` 则使用 `date`；未传 `date` 则默认今天
+- 生效日期之后的旧实例会被自动清理，按新规则重新生成虚拟任务
+- 响应返回的 `id` 是模板任务的 ID
+- 支持的变更场景：
+  - 非重复 → 重复（DAILY/WEEKLY/MONTHLY）
+  - DAILY → WEEKLY / MONTHLY
+  - WEEKLY → DAILY / MONTHLY
+  - MONTHLY → DAILY / WEEKLY
+  - 重复 → 非重复（NONE）
 
 **幂等要求**：幂等
 
 ---
 
-### 3.4 删除任务
+### 3.5 删除任务
 
 **接口描述**：删除任务（逻辑删除）
 
@@ -703,18 +794,18 @@
 - `X-Request-Id: {uuid}`（幂等）
 
 **路径参数**：
-- `taskId`：任务 ID
+- `taskId`：任务 ID（支持虚拟 ID）
 
 **请求参数**：
 ```json
 {
-  "deleteAllInstances": false
+  "deleteAll": false
 }
 ```
 
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| deleteAllInstances | boolean | 否 | 是否删除所有重复任务副本（默认 false） |
+| deleteAll | boolean | 否 | 是否删除目标日期及之后的所有（默认 false，仅删除当天） |
 
 **响应示例**：
 ```json
@@ -727,11 +818,21 @@
 }
 ```
 
+**说明**：
+- `deleteAll = false`：仅删除指定日期
+  - 若 `taskId` 为虚拟 ID → 创建一条已删除的实例，该日期不再显示
+  - 若 `taskId` 为实例 ID → 逻辑删除该实例
+  - 若 `taskId` 为普通任务 ID → 逻辑删除该任务
+- `deleteAll = true`：删除目标日期及之后的所有（不影响之前）
+  - 设置模板的 `repeatEndDate` 为目标日期的前一天
+  - 逻辑删除该日期及之后的所有已实例化的任务
+  - 之前日期的任务不受影响
+
 **幂等要求**：幂等（重复删除返回成功）
 
 ---
 
-### 3.5 完成/反完成任务
+### 3.6 完成/反完成任务
 
 **接口描述**：切换任务完成状态
 
@@ -742,7 +843,7 @@
 - `X-Request-Id: {uuid}`（幂等）
 
 **路径参数**：
-- `taskId`：任务 ID
+- `taskId`：任务 ID（支持虚拟 ID，自动实例化后完成）
 
 **请求参数**：
 ```json
@@ -772,14 +873,15 @@
 - `3005`：父任务存在未完成子任务，无法直接完成
 
 **说明**：
-- 父任务存在子任务时，完成状态由子任务派生（全部子任务完成才能完成父任务）
-- 父任务完成后新增未完成子任务，父任务自动变为未完成
+- 若 `taskId` 为虚拟 ID，后端自动实例化后更新状态，响应返回新实例 ID
+- 每天的重复任务有**独立的完成状态**：完成 2/10 的任务不影响 2/11 的任务
+- 父任务存在子任务时，完成状态由子任务派生
 
 **幂等要求**：幂等
 
 ---
 
-### 3.6 创建子任务
+### 3.7 创建子任务
 
 **接口描述**：为指定任务创建子任务
 
@@ -790,7 +892,7 @@
 - `X-Request-Id: {uuid}`（幂等）
 
 **路径参数**：
-- `taskId`：父任务 ID
+- `taskId`：父任务 ID（支持虚拟 ID，自动实例化父任务）
 
 **请求参数**：
 ```json
@@ -814,7 +916,7 @@
   "message": "success",
   "data": {
     "id": "subtask-uuid",
-    "parentId": "task-uuid",
+    "parentId": "instance-task-uuid",
     "title": "准备演示文档",
     "status": "INCOMPLETE",
     "repeatType": "NONE",
@@ -827,11 +929,16 @@
 - `3006`：父任务不存在
 - `3007`：子任务数量超出上限（20 条）
 
+**重复任务说明**：
+- 若 `taskId` 为虚拟 ID（如 `{templateId}_{date}`），后端自动实例化父任务
+- 子任务创建在实例任务上，仅影响当天，不影响其他日期
+- 已有模板子任务会自动克隆到实例任务
+
 **幂等要求**：幂等
 
 ---
 
-### 3.7 更新子任务
+### 3.8 更新子任务
 
 **接口描述**：更新子任务信息
 
@@ -848,32 +955,29 @@
 ```json
 {
   "title": "准备演示文档（更新）",
-  "repeatType": "DAILY"
+  "repeatType": "DAILY",
+  "date": "2026-02-08"
 }
 ```
 
-**响应示例**：
-```json
-{
-  "code": 0,
-  "message": "success",
-  "data": {
-    "id": "subtask-uuid",
-    "title": "准备演示文档（更新）",
-    "updatedAt": "2026-01-27T11:00:00.000Z"
-  }
-}
-```
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| title | string | 否 | 子任务标题 |
+| repeatType | string | 否 | 重复类型 |
+| date | string | 否 | 操作日期（重复任务按日隔离，格式 YYYY-MM-DD） |
+
+**重复任务说明**：
+- 若子任务属于重复模板且传入 `date`，后端自动实例化该日期的父任务并克隆子任务，仅修改当天的副本
 
 **幂等要求**：幂等
 
 ---
 
-### 3.8 删除子任务
+### 3.9 删除子任务
 
 **接口描述**：删除子任务（逻辑删除）
 
-**接口路径**：`DELETE /api/v1/subtasks/{subTaskId}`
+**接口路径**：`DELETE /api/v1/subtasks/{subTaskId}?date=2026-02-08`
 
 **请求头**：
 - `Authorization: Bearer {access_token}`
@@ -882,23 +986,17 @@
 **路径参数**：
 - `subTaskId`：子任务 ID
 
-**响应示例**：
-```json
-{
-  "code": 0,
-  "message": "success",
-  "data": null
-}
-```
+**查询参数**：
+- `date`：操作日期（可选，重复任务按日隔离，格式 YYYY-MM-DD）
 
-**说明**：
-- 删除子任务后自动触发父任务状态重算
+**重复任务说明**：
+- 若子任务属于重复模板且传入 `date`，后端自动实例化该日期的父任务并克隆子任务，仅删除当天的副本
 
 **幂等要求**：幂等
 
 ---
 
-### 3.9 完成/反完成子任务
+### 3.10 完成/反完成子任务
 
 **接口描述**：切换子任务完成状态
 
@@ -914,9 +1012,15 @@
 **请求参数**：
 ```json
 {
-  "completed": true
+  "completed": true,
+  "date": "2026-02-08"
 }
 ```
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| completed | boolean | 是 | true=完成，false=反完成 |
+| date | string | 否 | 操作日期（重复任务按日隔离，格式 YYYY-MM-DD） |
 
 **响应示例**：
 ```json
@@ -924,26 +1028,27 @@
   "code": 0,
   "message": "success",
   "data": {
-    "id": "subtask-uuid",
+    "id": "instance-subtask-uuid",
     "status": "COMPLETED",
-    "completedAt": "2026-01-27T10:30:00.000Z",
+    "completedAt": "2026-02-08T10:30:00.000Z",
     "parentTask": {
-      "id": "task-uuid",
-      "status": "COMPLETED"
+      "id": "instance-task-uuid",
+      "status": "INCOMPLETE"
     }
   }
 }
 ```
 
-**说明**：
-- 完成/反完成子任务后自动触发父任务状态重算
+**重复任务说明**：
+- 若子任务属于重复模板且传入 `date`，后端自动实例化该日期的父任务并克隆子任务，仅影响当天
+- 响应中返回的 `id` 是当天实例副本的 ID
 - 响应中包含父任务最新状态
 
 **幂等要求**：幂等
 
 ---
 
-### 3.10 打卡
+### 3.11 打卡
 
 **接口描述**：点击"打卡/完成今日计划"按钮
 
