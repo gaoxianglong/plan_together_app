@@ -48,10 +48,17 @@ class MaidenPlanApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // 设置 ApiClient 的全局导航回调（用于 401 自动跳转登录页）
+    // 设置 ApiClient 的全局导航回调（用于 401 Token 刷新失败时自动跳转登录页）
     ApiClient.instance.setOnUnauthorized(() {
-      // 清除 token 并跳转到登录页
       AuthService.instance.clearLocalAuth();
+      navigatorKey.currentState?.pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const LoginPage()),
+        (route) => false,
+      );
+    });
+
+    // 设置会话失效回调（用于轮询检测到会话失效时跳转登录页）
+    AuthService.instance.setOnSessionInvalid(() {
       navigatorKey.currentState?.pushAndRemoveUntil(
         MaterialPageRoute(builder: (_) => const LoginPage()),
         (route) => false,

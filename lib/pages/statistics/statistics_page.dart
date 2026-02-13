@@ -1,9 +1,11 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import '../../theme/app_colors.dart';
 import '../../models/task.dart';
 import '../../services/audio_service.dart';
 import '../../services/locale_service.dart';
+import '../../services/task_service.dart';
 
 /// 统计页面
 class StatisticsPage extends StatefulWidget {
@@ -14,11 +16,18 @@ class StatisticsPage extends StatefulWidget {
 }
 
 class _StatisticsPageState extends State<StatisticsPage> {
-  // 状态：当前选中的象限过滤 (null 表示全部)
+  // 当前选中的象限过滤 (null 表示全部)
   TaskPriority? _selectedQuadrant;
 
-  // 状态：当前时间视图 (false: Week, true: Month)
+  // 当前时间视图 (false: Week, true: Month)
   bool _isMonthView = false;
+
+  // 基准日期（默认今天）
+  DateTime _baseDate = DateTime.now();
+
+  // API 数据
+  TaskStatsData? _statsData;
+  bool _isLoading = false;
 
   // 语言变化监听
   StreamSubscription<AppLanguage>? _languageSubscription;
@@ -29,6 +38,7 @@ class _StatisticsPageState extends State<StatisticsPage> {
     _languageSubscription = LocaleService.instance.languageStream.listen((_) {
       setState(() {});
     });
+    _fetchStats();
   }
 
   @override
@@ -37,106 +47,42 @@ class _StatisticsPageState extends State<StatisticsPage> {
     super.dispose();
   }
 
-  // 模拟数据 - 包含各象限的任务
-  final List<Task> _allTasks = [
-    // P0 - 紧急且重要
-    Task(
-      id: '1',
-      userId: 'u1',
-      title: 'Complete UI Redesign',
-      priority: TaskPriority.p0,
-      date: DateTime.now(),
-      status: TaskStatus.incomplete,
-      createdAt: DateTime.now(),
-    ),
-    Task(
-      id: '7',
-      userId: 'u1',
-      title: 'Fix critical bug',
-      priority: TaskPriority.p0,
-      date: DateTime.now(),
-      status: TaskStatus.completed,
-      createdAt: DateTime.now(),
-      completedAt: DateTime.now(),
-    ),
-    // P1 - 重要不紧急
-    Task(
-      id: '2',
-      userId: 'u1',
-      title: 'Client meeting prep',
-      priority: TaskPriority.p1,
-      date: DateTime.now(),
-      status: TaskStatus.incomplete,
-      createdAt: DateTime.now(),
-    ),
-    Task(
-      id: '4',
-      userId: 'u1',
-      title: 'Gym workout session',
-      priority: TaskPriority.p1,
-      date: DateTime.now().subtract(const Duration(days: 1)),
-      status: TaskStatus.completed,
-      createdAt: DateTime.now(),
-      completedAt: DateTime.now(),
-    ),
-    // P2 - 紧急不重要
-    Task(
-      id: '3',
-      userId: 'u1',
-      title: 'Grocery delivery',
-      priority: TaskPriority.p2,
-      date: DateTime.now(),
-      status: TaskStatus.incomplete,
-      createdAt: DateTime.now(),
-    ),
-    Task(
-      id: '5',
-      userId: 'u1',
-      title: 'Respond to emails',
-      priority: TaskPriority.p2,
-      date: DateTime.now().subtract(const Duration(days: 2)),
-      status: TaskStatus.completed,
-      createdAt: DateTime.now(),
-      completedAt: DateTime.now(),
-    ),
-    // P3 - 不重要不紧急
-    Task(
-      id: '6',
-      userId: 'u1',
-      title: 'Read 20 pages',
-      priority: TaskPriority.p3,
-      date: DateTime.now(),
-      status: TaskStatus.incomplete,
-      createdAt: DateTime.now(),
-    ),
-    Task(
-      id: '8',
-      userId: 'u1',
-      title: 'Organize desktop',
-      priority: TaskPriority.p3,
-      date: DateTime.now(),
-      status: TaskStatus.completed,
-      createdAt: DateTime.now(),
-      completedAt: DateTime.now(),
-    ),
-  ];
+  /// 获取统计数据
+  Future<void> _fetchStats() async {
+    setState(() => _isLoading = true);
 
-  /// 获取过滤后的任务列表
-  List<Task> get _filteredTasks {
-    return _allTasks.where((task) {
-      // 1. 象限过滤
-      if (_selectedQuadrant != null && task.priority != _selectedQuadrant) {
-        return false;
-      }
-      // 2. 时间范围过滤 (这里简化处理，Week取最近7天，Month取最近30天)
-      final now = DateTime.now();
-      final diff = now.difference(task.date).inDays.abs();
-      if (_isMonthView) {
-        return diff <= 30;
-      } else {
-        return diff <= 7;
-      }
-    }).toList();
+    // 构造 priorities 参数
+    List<String>? priorities;
+    if (_selectedQuadrant != null) {
+      priorities = [_selectedQuadrant!.apiValue];
+    }
+
+    final result = await TaskService.instance.fetchTaskStats(
+      dimension: _isMonthView ? 'MONTH' : 'WEEK',
+      date: _baseDate,
+      priorities: priorities,
+    );
+
+    if (mounted) {
+      setState(() {
+        _isLoading = false;
+        if (result.isSuccess && result.data != null) {
+          _statsData = result.data;
+        }
+      });
+    }
+  }
+
+  /// 切换象限过滤后重新请求
+  void _onQuadrantChanged(TaskPriority? quadrant) {
+    setState(() => _selectedQuadrant = quadrant);
+    _fetchStats();
+  }
+
+  /// 切换周/月视图后重新请求
+  void _onScopeChanged(bool isMonth) {
+    setState(() => _isMonthView = isMonth);
+    _fetchStats();
   }
 
   @override
@@ -146,32 +92,43 @@ class _StatisticsPageState extends State<StatisticsPage> {
       body: SafeArea(
         child: Column(
           children: [
-            // 过滤器与切换器（直接从顶部开始，移除了标题）
+            // 过滤器与切换器
             _buildFilterAndScope(),
 
-            // 内容区域 (可滚动)
+            // 内容区域
             Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 20,
-                  vertical: 8,
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // 曲线图
-                    _buildChartCard(),
-
-                    const SizedBox(height: 20),
-
-                    // 任务列表
-                    _buildTaskLists(),
-
-                    // 底部留白
-                    const SizedBox(height: 16),
-                  ],
-                ),
-              ),
+              child: _isLoading && _statsData == null
+                  ? const Center(child: CircularProgressIndicator())
+                  : _statsData == null
+                      ? Center(
+                          child: Text(
+                            tr('no_stats_data'),
+                            style: const TextStyle(
+                              fontSize: 14,
+                              color: AppColors.textSecondary,
+                            ),
+                          ),
+                        )
+                      : RefreshIndicator(
+                          onRefresh: _fetchStats,
+                          color: AppColors.primary,
+                          child: SingleChildScrollView(
+                            physics: const AlwaysScrollableScrollPhysics(),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 20,
+                              vertical: 8,
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                _buildChartCard(),
+                                const SizedBox(height: 20),
+                                _buildTaskLists(),
+                                const SizedBox(height: 16),
+                              ],
+                            ),
+                          ),
+                        ),
             ),
           ],
         ),
@@ -179,16 +136,15 @@ class _StatisticsPageState extends State<StatisticsPage> {
     );
   }
 
+  // ========== 过滤器 ==========
+
   Widget _buildFilterAndScope() {
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 12, 20, 8),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          // 左侧：象限选择器
           _buildQuadrantSelector(),
-
-          // 右侧：周/月切换
           _buildScopeToggle(),
         ],
       ),
@@ -199,10 +155,9 @@ class _StatisticsPageState extends State<StatisticsPage> {
     return PopupMenuButton<int>(
       initialValue: _selectedQuadrant?.value ?? -1,
       onSelected: (value) {
-        setState(() {
-          _selectedQuadrant =
-              value == -1 ? null : TaskPriority.fromValue(value);
-        });
+        _onQuadrantChanged(
+          value == -1 ? null : TaskPriority.fromValue(value),
+        );
       },
       offset: const Offset(0, 36),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -222,9 +177,7 @@ class _StatisticsPageState extends State<StatisticsPage> {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // 显示对应的颜色指示
             if (_selectedQuadrant == null)
-              // All Tasks - 显示多彩渐变圆点
               Container(
                 width: 6,
                 height: 6,
@@ -275,13 +228,11 @@ class _StatisticsPageState extends State<StatisticsPage> {
         ),
       ),
       itemBuilder: (context) => [
-        // All Tasks 选项 (value = -1)
         PopupMenuItem<int>(
           value: -1,
           height: 36,
           child: Row(
             children: [
-              // 多彩渐变圆点表示全部
               Container(
                 width: 6,
                 height: 6,
@@ -302,7 +253,8 @@ class _StatisticsPageState extends State<StatisticsPage> {
               const SizedBox(width: 8),
               Text(
                 tr('all_tasks'),
-                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+                style: const TextStyle(
+                    fontSize: 12, fontWeight: FontWeight.w500),
               ),
               if (_selectedQuadrant == null) ...[
                 const Spacer(),
@@ -312,7 +264,6 @@ class _StatisticsPageState extends State<StatisticsPage> {
           ),
         ),
         const PopupMenuDivider(height: 1),
-        // 各象限选项
         ...TaskPriority.values.map(
           (p) => PopupMenuItem<int>(
             value: p.value,
@@ -330,7 +281,8 @@ class _StatisticsPageState extends State<StatisticsPage> {
                 const SizedBox(width: 8),
                 Text(
                   'P${p.value} ${p.label}',
-                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+                  style: const TextStyle(
+                      fontSize: 12, fontWeight: FontWeight.w500),
                 ),
                 if (_selectedQuadrant == p) ...[
                   const Spacer(),
@@ -355,20 +307,18 @@ class _StatisticsPageState extends State<StatisticsPage> {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          _buildScopeItem(tr('week'), !_isMonthView, 'Week'),
-          _buildScopeItem(tr('month'), _isMonthView, 'Month'),
+          _buildScopeItem(tr('week'), !_isMonthView, false),
+          _buildScopeItem(tr('month'), _isMonthView, true),
         ],
       ),
     );
   }
 
-  Widget _buildScopeItem(String label, bool isSelected, String key) {
+  Widget _buildScopeItem(String label, bool isSelected, bool isMonth) {
     return GestureDetector(
       onTap: () {
         AudioService.instance.playButton();
-        setState(() {
-          _isMonthView = key == 'Month';
-        });
+        _onScopeChanged(isMonth);
       },
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
@@ -389,12 +339,10 @@ class _StatisticsPageState extends State<StatisticsPage> {
     );
   }
 
+  // ========== 图表卡片 ==========
+
   Widget _buildChartCard() {
-    // 计算完成率
-    final tasks = _filteredTasks;
-    final total = tasks.length;
-    final completed = tasks.where((t) => t.isCompleted).length;
-    final rate = total == 0 ? 0.0 : (completed / total * 100);
+    final stats = _statsData!;
 
     return Container(
       padding: const EdgeInsets.all(20),
@@ -413,6 +361,7 @@ class _StatisticsPageState extends State<StatisticsPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // 完成率 + 图例
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -429,17 +378,33 @@ class _StatisticsPageState extends State<StatisticsPage> {
                     ),
                   ),
                   const SizedBox(height: 4),
-                  Text(
-                    '${rate.toStringAsFixed(1)}%',
-                    style: const TextStyle(
-                      fontSize: 32,
-                      fontWeight: FontWeight.w300,
-                      color: AppColors.textPrimary,
-                    ),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Text(
+                        '${stats.totalCompletionRate.toStringAsFixed(1)}%',
+                        style: const TextStyle(
+                          fontSize: 32,
+                          fontWeight: FontWeight.w300,
+                          color: AppColors.textPrimary,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 6),
+                        child: Text(
+                          '${stats.totalCompleted}/${stats.totalTasks}',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color:
+                                AppColors.textSecondary.withValues(alpha: 0.6),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
-              // 图例
               Row(
                 children: [
                   _buildLegendItem(tr('done'), AppColors.primary),
@@ -451,40 +416,80 @@ class _StatisticsPageState extends State<StatisticsPage> {
           ),
           const SizedBox(height: 20),
 
-          // 曲线图 - 使用 ClipRect 裁剪阴影超出边框
+          // 曲线图
           ClipRect(
             child: SizedBox(
               height: 160,
               width: double.infinity,
-              child: CustomPaint(
-                painter: _ChartPainter(
-                  isMonth: _isMonthView,
-                  primaryColor: AppColors.primary,
-                  secondaryColor: AppColors.textHint.withValues(alpha: 0.3),
-                ),
-              ),
+              child: _isLoading
+                  ? const Center(
+                      child: SizedBox(
+                        width: 24,
+                        height: 24,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    )
+                  : CustomPaint(
+                      painter: _ChartPainter(
+                        chartData: stats.chartData,
+                        primaryColor: AppColors.primary,
+                        secondaryColor:
+                            AppColors.textHint.withValues(alpha: 0.3),
+                      ),
+                    ),
             ),
           ),
 
           const SizedBox(height: 16),
-          // X轴标签
+
+          // X 轴标签
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: _isMonthView
-                ? [tr('week_1'), tr('week_2'), tr('week_3'), tr('week_4')].map(_buildAxisLabel).toList()
-                : [
-                    tr('mon'),
-                    tr('tue'),
-                    tr('wed'),
-                    tr('thu'),
-                    tr('fri'),
-                    tr('sat'),
-                    tr('sun'),
-                  ].map(_buildAxisLabel).toList(),
+            children: _buildXAxisLabels(),
           ),
         ],
       ),
     );
+  }
+
+  /// 构建 X 轴标签（国际化）
+  List<Widget> _buildXAxisLabels() {
+    final chartData = _statsData!.chartData;
+    if (chartData.isEmpty) return [];
+
+    return chartData.map((point) {
+      String label;
+      if (_isMonthView) {
+        // 月维度：label 为 "第N周" — 使用国际化
+        label = _localizeWeekLabel(point.label);
+      } else {
+        // 周维度：label 为 YYYY-MM-DD — 转为星期缩写
+        label = _dateLabelToWeekday(point.label);
+      }
+      return _buildAxisLabel(label);
+    }).toList();
+  }
+
+  /// 将 "第N周" 转为国际化标签
+  String _localizeWeekLabel(String label) {
+    // 后端返回 "第1周", "第2周" 等
+    final match = RegExp(r'(\d+)').firstMatch(label);
+    if (match != null) {
+      final n = int.parse(match.group(1)!);
+      return tr('week_$n');
+    }
+    return label;
+  }
+
+  /// 将 YYYY-MM-DD 转为国际化的星期缩写
+  String _dateLabelToWeekday(String dateStr) {
+    try {
+      final date = DateTime.parse(dateStr);
+      const keys = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+      return tr(keys[date.weekday - 1]);
+    } catch (_) {
+      return dateStr;
+    }
   }
 
   Widget _buildLegendItem(String label, Color color) {
@@ -515,47 +520,40 @@ class _StatisticsPageState extends State<StatisticsPage> {
     );
   }
 
+  // ========== 任务列表 ==========
+
   Widget _buildTaskLists() {
-    final tasks = _filteredTasks;
-    final ongoing = tasks.where((t) => !t.isCompleted).toList();
-    final completed = tasks.where((t) => t.isCompleted).toList();
-    // 假设未完成是指过期的，这里简化为所有未完成
-    // 实际业务中 Unfinished 可能指 Overdue。这里按照 Prompt 要求 "未完成"
-    // 为了区分 Ongoing 和 Unfinished，我们假设：
-    // Ongoing: 未完成且日期 >= 今天
-    // Unfinished: 未完成且日期 < 今天
+    final stats = _statsData!;
+    final completedTasks = List<Task>.from(stats.completedTasks);
+    final incompleteTasks = List<Task>.from(stats.incompleteTasks);
 
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
+    if (completedTasks.isEmpty && incompleteTasks.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 32),
+        child: Center(
+          child: Text(
+            tr('no_stats_data'),
+            style: const TextStyle(fontSize: 14, color: AppColors.textSecondary),
+          ),
+        ),
+      );
+    }
 
-    final realOngoing = ongoing.where((t) {
-      final tDate = DateTime(t.date.year, t.date.month, t.date.day);
-      return !tDate.isBefore(today);
-    }).toList();
-
-    final realUnfinished = ongoing.where((t) {
-      final tDate = DateTime(t.date.year, t.date.month, t.date.day);
-      return tDate.isBefore(today);
-    }).toList();
+    // 按创建时间倒序排序（最新的在前）
+    completedTasks.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    incompleteTasks.sort((a, b) => b.createdAt.compareTo(a.createdAt));
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if (realOngoing.isNotEmpty) ...[
-          _buildSectionHeader(tr('ongoing_tasks'), AppColors.primary),
-          ...realOngoing.map((t) => _buildTaskItem(t)),
-          const SizedBox(height: 20),
-        ],
-
-        if (completed.isNotEmpty) ...[
+        if (completedTasks.isNotEmpty) ...[
           _buildSectionHeader(tr('completed'), AppColors.success),
-          ...completed.map((t) => _buildTaskItem(t)),
+          ...completedTasks.map((t) => _buildTaskItem(t)),
           const SizedBox(height: 20),
         ],
-
-        if (realUnfinished.isNotEmpty) ...[
+        if (incompleteTasks.isNotEmpty) ...[
           _buildSectionHeader(tr('unfinished'), AppColors.textSecondary),
-          ...realUnfinished.map((t) => _buildTaskItem(t, isOverdue: true)),
+          ...incompleteTasks.map((t) => _buildTaskItem(t)),
         ],
       ],
     );
@@ -586,7 +584,7 @@ class _StatisticsPageState extends State<StatisticsPage> {
     );
   }
 
-  Widget _buildTaskItem(Task task, {bool isOverdue = false}) {
+  Widget _buildTaskItem(Task task) {
     final priorityColor = AppColors.getPriorityColor(task.priority.value);
 
     return Container(
@@ -599,7 +597,6 @@ class _StatisticsPageState extends State<StatisticsPage> {
       ),
       child: Row(
         children: [
-          // Priority Dot
           Container(
             width: 6,
             height: 6,
@@ -609,8 +606,6 @@ class _StatisticsPageState extends State<StatisticsPage> {
             ),
           ),
           const SizedBox(width: 10),
-
-          // Title - 与 task_card.dart 保持一致的字体样式
           Expanded(
             child: Text(
               task.title,
@@ -619,101 +614,108 @@ class _StatisticsPageState extends State<StatisticsPage> {
               style: TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.w500,
-                color: task.isCompleted
-                    ? AppColors.textHint
-                    : AppColors.textPrimary,
-                decoration: task.isCompleted
-                    ? TextDecoration.lineThrough
-                    : null,
+                color:
+                    task.isCompleted ? AppColors.textHint : AppColors.textPrimary,
+                decoration:
+                    task.isCompleted ? TextDecoration.lineThrough : null,
                 decorationColor: AppColors.textHint,
               ),
             ),
           ),
-
-          // Status/Time
-          if (task.isCompleted)
-            const Icon(Icons.check_circle, color: AppColors.priorityP0, size: 16)
-          else if (isOverdue)
-            Text(
-              tr('reschedule'),
-              style: const TextStyle(
-                fontSize: 11,
-                color: AppColors.primary,
-                fontWeight: FontWeight.w600,
-              ),
-            )
-          else
-            Text(
-              tr('today'),
-              style: TextStyle(fontSize: 11, color: AppColors.textHint),
-            ),
+          const SizedBox(width: 8),
+          // 右侧显示创建时间
+          Text(
+            _formatCreatedAt(task.createdAt),
+            style: TextStyle(fontSize: 11, color: AppColors.textHint),
+          ),
+          if (task.isCompleted) ...[
+            const SizedBox(width: 6),
+            const Icon(Icons.check_circle,
+                color: AppColors.priorityP0, size: 16),
+          ],
         ],
       ),
     );
   }
+
+  /// 格式化创建时间为 MM-DD HH:mm
+  String _formatCreatedAt(DateTime dt) {
+    return '${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')} '
+        '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+  }
 }
 
-/// 自定义曲线图绘制器
+/// 自定义曲线图绘制器 — 使用真实 chartData
 class _ChartPainter extends CustomPainter {
-  final bool isMonth;
+  final List<ChartDataPoint> chartData;
   final Color primaryColor;
   final Color secondaryColor;
 
   _ChartPainter({
-    required this.isMonth,
+    required this.chartData,
     required this.primaryColor,
     required this.secondaryColor,
   });
 
   @override
   void paint(Canvas canvas, Size size) {
-    // 模拟两个数据序列
-    // 1. 完成任务曲线 (Primary)
-    final path1 = Path();
-    // 2. 未完成任务曲线 (Secondary)
-    final path2 = Path();
+    if (chartData.isEmpty) return;
 
     final width = size.width;
     final height = size.height;
+    final points = chartData.length;
+    final stepX = points > 1 ? width / (points - 1) : width;
 
-    // 生成一些平滑的随机点或固定模式
-    final points = isMonth ? 4 : 7;
-    final stepX = width / (points - 1);
+    // 找到最大值以进行归一化
+    final maxTotal =
+        chartData.map((d) => d.total).reduce((a, b) => math.max(a, b));
+    if (maxTotal == 0) return;
 
-    // 模拟数据点 (0.0 - 1.0)
-    final data1 = isMonth
-        ? [0.3, 0.5, 0.8, 0.6]
-        : [0.2, 0.4, 0.35, 0.6, 0.8, 0.7, 0.5];
+    // 已完成数据 (0.0 ~ 1.0)
+    final completedData =
+        chartData.map((d) => d.completed / maxTotal).toList();
+    // 未完成数据 (0.0 ~ 1.0)
+    final incompleteData =
+        chartData.map((d) => d.incomplete / maxTotal).toList();
 
-    final data2 = isMonth
-        ? [0.6, 0.4, 0.2, 0.3]
-        : [0.7, 0.5, 0.6, 0.3, 0.2, 0.25, 0.4];
-
-    _drawSmoothPath(canvas, path1, data1, stepX, height, primaryColor, 3.0);
-    _drawSmoothPath(
+    // 绘制已完成曲线（实线 + 渐变填充）
+    _drawSmoothCurve(
       canvas,
-      path2,
-      data2,
+      completedData,
+      stepX,
+      height,
+      primaryColor,
+      3.0,
+      fill: true,
+    );
+
+    // 绘制未完成曲线（虚线风格，较细）
+    _drawSmoothCurve(
+      canvas,
+      incompleteData,
       stepX,
       height,
       secondaryColor,
       2.0,
-      isDashed: true,
+      fill: false,
     );
+
+    // 绘制数据点
+    _drawDataPoints(canvas, completedData, stepX, height, primaryColor);
   }
 
-  void _drawSmoothPath(
+  void _drawSmoothCurve(
     Canvas canvas,
-    Path path,
     List<double> data,
     double stepX,
     double height,
     Color color,
     double strokeWidth, {
-    bool isDashed = false,
+    required bool fill,
   }) {
     if (data.isEmpty) return;
 
+    final path = Path();
     path.moveTo(0, height * (1 - data[0]));
 
     for (int i = 0; i < data.length - 1; i++) {
@@ -723,41 +725,39 @@ class _ChartPainter extends CustomPainter {
       final y2 = height * (1 - data[i + 1]);
 
       final controlX1 = x1 + stepX / 2;
-      final controlY1 = y1;
       final controlX2 = x1 + stepX / 2;
-      final controlY2 = y2;
 
-      path.cubicTo(controlX1, controlY1, controlX2, controlY2, x2, y2);
+      path.cubicTo(controlX1, y1, controlX2, y2, x2, y2);
     }
 
+    // 绘制曲线
     final paint = Paint()
       ..color = color
       ..style = PaintingStyle.stroke
       ..strokeWidth = strokeWidth
       ..strokeCap = StrokeCap.round;
-
     canvas.drawPath(path, paint);
 
-    // 绘制渐变填充 (仅实线)
-    if (!isDashed) {
+    // 绘制渐变填充
+    if (fill) {
       final fillPath = Path.from(path);
-      fillPath.lineTo(
-        data.length * stepX,
-        height,
-      ); // Extend to bottom right (approx)
-      fillPath.lineTo((data.length - 1) * stepX, height);
+      final lastX = (data.length - 1) * stepX;
+      fillPath.lineTo(lastX, height);
       fillPath.lineTo(0, height);
       fillPath.close();
 
       final gradient = LinearGradient(
         begin: Alignment.topCenter,
         end: Alignment.bottomCenter,
-        colors: [color.withValues(alpha: 0.2), color.withValues(alpha: 0.0)],
+        colors: [
+          color.withValues(alpha: 0.2),
+          color.withValues(alpha: 0.0),
+        ],
       );
 
       final fillPaint = Paint()
         ..shader = gradient.createShader(
-          Rect.fromLTWH(0, 0, stepX * data.length, height),
+          Rect.fromLTWH(0, 0, lastX, height),
         )
         ..style = PaintingStyle.fill;
 
@@ -765,6 +765,34 @@ class _ChartPainter extends CustomPainter {
     }
   }
 
+  void _drawDataPoints(
+    Canvas canvas,
+    List<double> data,
+    double stepX,
+    double height,
+    Color color,
+  ) {
+    final dotPaint = Paint()
+      ..color = color
+      ..style = PaintingStyle.fill;
+
+    final ringPaint = Paint()
+      ..color = Colors.white
+      ..style = PaintingStyle.fill;
+
+    for (int i = 0; i < data.length; i++) {
+      final x = i * stepX;
+      final y = height * (1 - data[i]);
+
+      // 外圈白色
+      canvas.drawCircle(Offset(x, y), 4, ringPaint);
+      // 内圈色彩
+      canvas.drawCircle(Offset(x, y), 2.5, dotPaint);
+    }
+  }
+
   @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
+  bool shouldRepaint(covariant _ChartPainter oldDelegate) {
+    return oldDelegate.chartData != chartData;
+  }
 }

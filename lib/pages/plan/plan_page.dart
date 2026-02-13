@@ -7,8 +7,7 @@ import '../../widgets/common/plan_header.dart';
 import '../../widgets/common/quote_card.dart';
 import '../../widgets/common/celebration_overlay.dart';
 import '../../widgets/task/add_task_sheet.dart';
-import '../../widgets/task/add_subtask_sheet.dart';
-import '../../widgets/task/subtask_list_sheet.dart';
+import '../../widgets/task/update_task_sheet.dart';
 import '../../widgets/task/eisenhower_matrix.dart';
 import '../../services/quote_service.dart';
 import '../../services/celebration_service.dart';
@@ -16,6 +15,7 @@ import '../../services/audio_service.dart';
 import '../../services/avatar_service.dart';
 import '../../services/nickname_service.dart';
 import '../../services/locale_service.dart';
+import '../../services/task_service.dart';
 
 /// Plan Page
 class PlanPage extends StatefulWidget {
@@ -54,6 +54,9 @@ class PlanPageState extends State<PlanPage> {
   // Language subscription for rebuilding UI
   StreamSubscription<AppLanguage>? _languageSubscription;
 
+  // 连续打卡天数
+  int _consecutiveDays = 0;
+
   @override
   void initState() {
     super.initState();
@@ -86,6 +89,12 @@ class PlanPageState extends State<PlanPage> {
     _languageSubscription = LocaleService.instance.languageStream.listen((_) {
       setState(() {});
     });
+
+    // 首次加载任务列表
+    _fetchTasks();
+
+    // 查询连续打卡天数
+    _fetchCheckInStreak();
   }
 
   @override
@@ -97,77 +106,9 @@ class PlanPageState extends State<PlanPage> {
     super.dispose();
   }
 
-  // Mock data (changed to mutable list to support status updates)
-  List<Task> _mockTasks = [
-    Task(
-      id: '1',
-      userId: 'user1',
-      title: 'Complete UI Redesign',
-      priority: TaskPriority.p0,
-      date: DateTime.now(),
-      createdAt: DateTime.now().subtract(const Duration(hours: 2)),
-    ),
-    Task(
-      id: '2',
-      userId: 'user1',
-      title: 'Client meeting 2PM',
-      priority: TaskPriority.p0,
-      date: DateTime.now(),
-      createdAt: DateTime.now().subtract(const Duration(hours: 1)),
-    ),
-    Task(
-      id: '3',
-      userId: 'user1',
-      title: 'Gym workout session',
-      priority: TaskPriority.p1,
-      date: DateTime.now(),
-      createdAt: DateTime.now().subtract(const Duration(hours: 3)),
-    ),
-    Task(
-      id: '4',
-      userId: 'user1',
-      title: 'Read 20 pages',
-      priority: TaskPriority.p1,
-      date: DateTime.now(),
-      status: TaskStatus.completed,
-      createdAt: DateTime.now().subtract(const Duration(hours: 4)),
-      completedAt: DateTime.now().subtract(const Duration(minutes: 30)),
-    ),
-    Task(
-      id: '5',
-      userId: 'user1',
-      title: 'Respond to emails',
-      priority: TaskPriority.p2,
-      date: DateTime.now(),
-      createdAt: DateTime.now().subtract(const Duration(hours: 5)),
-    ),
-    Task(
-      id: '6',
-      userId: 'user1',
-      title: 'Grocery delivery',
-      priority: TaskPriority.p2,
-      date: DateTime.now(),
-      createdAt: DateTime.now().subtract(const Duration(hours: 6)),
-    ),
-    Task(
-      id: '7',
-      userId: 'user1',
-      title: 'Social media scrolling',
-      priority: TaskPriority.p3,
-      date: DateTime.now(),
-      createdAt: DateTime.now().subtract(const Duration(hours: 7)),
-    ),
-    Task(
-      id: '8',
-      userId: 'user1',
-      title: 'Check junk mail',
-      priority: TaskPriority.p3,
-      date: DateTime.now(),
-      status: TaskStatus.completed,
-      createdAt: DateTime.now().subtract(const Duration(hours: 8)),
-      completedAt: DateTime.now().subtract(const Duration(hours: 1)),
-    ),
-  ];
+  // 当前日期的任务列表（从 API 获取）
+  List<Task> _tasks = [];
+  bool _isLoading = false;
 
   bool _isSameDay(DateTime a, DateTime b) {
     return a.year == b.year && a.month == b.month && a.day == b.day;
@@ -177,15 +118,12 @@ class PlanPageState extends State<PlanPage> {
     return _isSameDay(date, DateTime.now());
   }
 
-  List<Task> get _tasksForSelectedDate {
-    return _mockTasks
-        .where((task) => _isSameDay(task.date, _selectedDate))
-        .toList();
-  }
+  /// 当前日期的任务（已按日期从 API 获取，直接返回）
+  List<Task> get _tasksForSelectedDate => _tasks;
 
   Map<DateTime, List<int>> get _taskIndicators {
     final indicators = <DateTime, List<int>>{};
-    for (final task in _mockTasks) {
+    for (final task in _tasks) {
       if (!task.isCompleted) {
         final normalizedDate = DateTime(
           task.date.year,
@@ -211,19 +149,63 @@ class PlanPageState extends State<PlanPage> {
     setState(() {
       _selectedDate = date;
     });
+    _fetchTasks();
   }
 
   void _handleReturnToToday() {
-    // Play page turn sound
     AudioService.instance.playPageTurn();
     setState(() {
       _selectedDate = DateTime.now();
     });
+    _fetchTasks();
   }
 
-  /// Generate unique task ID
-  String _generateTaskId() {
-    return 'task_${DateTime.now().millisecondsSinceEpoch}_${_mockTasks.length}';
+  /// 从 API 获取当前日期的任务列表
+  Future<void> _fetchTasks() async {
+    setState(() {
+      _isLoading = true;
+    });
+
+    final result = await TaskService.instance.fetchTasksByDate(
+      _selectedDate,
+      showCompleted: _showCompleted,
+    );
+
+    if (mounted) {
+      setState(() {
+        _isLoading = false;
+        if (result.isSuccess) {
+          _tasks = result.tasks;
+        }
+      });
+
+      if (!result.isSuccess) {
+        _showError(result.errorMessage ?? tr('error_server'));
+      }
+    }
+  }
+
+  /// 查询连续打卡天数
+  Future<void> _fetchCheckInStreak() async {
+    final result = await TaskService.instance.getCheckInStreak();
+    if (mounted && result.isSuccess) {
+      setState(() {
+        _consecutiveDays = result.consecutiveDays;
+      });
+    }
+  }
+
+  /// 显示错误提示
+  void _showError(String message) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: Colors.red[400],
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    }
   }
 
   /// Public method: Add task
@@ -232,22 +214,15 @@ class PlanPageState extends State<PlanPage> {
       context,
       selectedDate: _selectedDate,
       defaultPriority: priority,
-      onSave: (title, taskPriority, repeatType, weekdays, dayOfMonth) {
-        // Create new task and add to list
-        _createTask(title, taskPriority, repeatType, weekdays, dayOfMonth);
+      onSave: (title, taskPriority) {
+        _createTask(title, taskPriority);
       },
     );
   }
 
-  /// Create task
-  void _createTask(
-    String title,
-    TaskPriority priority,
-    RepeatType repeatType,
-    List<int>? weekdays,
-    int? dayOfMonth,
-  ) {
-    // Determine task date (past dates automatically adjusted to today)
+  /// 创建任务（调用后端 API）
+  Future<void> _createTask(String title, TaskPriority priority) async {
+    // 过去的日期自动调整为今天
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     final selectedDay = DateTime(
@@ -257,27 +232,25 @@ class PlanPageState extends State<PlanPage> {
     );
     final taskDate = selectedDay.isBefore(today) ? today : selectedDay;
 
-    // Create new task
-    final newTask = Task(
-      id: _generateTaskId(),
-      userId: 'user1',
+    final result = await TaskService.instance.createTask(
       title: title,
-      priority: priority,
+      priority: priority.apiValue,
       date: taskDate,
-      repeatType: repeatType,
-      weekdays: weekdays,
-      dayOfMonth: dayOfMonth,
-      createdAt: DateTime.now(),
     );
 
-    // Add to task list and update UI
-    setState(() {
-      _mockTasks = [newTask, ..._mockTasks]; // New task placed at the beginning
-    });
-
-    debugPrint(
-      'Created task: ${newTask.title}, priority: P${priority.value}, date: $taskDate',
-    );
+    if (result.isSuccess) {
+      if (result.task != null && _isSameDay(taskDate, _selectedDate)) {
+        // 任务归属当前日期，直接加入本地列表
+        setState(() {
+          _tasks = [result.task!, ..._tasks];
+        });
+      } else {
+        // 任务归属其他日期或无法解析响应，刷新当前列表
+        await _fetchTasks();
+      }
+    } else {
+      _showError(result.errorMessage ?? tr('error_server'));
+    }
   }
 
   /// Public method: Show quick add menu
@@ -285,54 +258,70 @@ class PlanPageState extends State<PlanPage> {
     _showQuickAddMenu();
   }
 
-  /// Toggle task completion status (also toggles all subtasks)
-  void _handleToggleTaskComplete(Task task) {
+  /// 切换任务完成状态（乐观更新 + API 调用）
+  Future<void> _handleToggleTaskComplete(Task task) async {
     final wasAllCompleted = _areAllTodayTasksCompleted();
+    final newCompleted = !task.isCompleted;
+    final newStatus =
+        newCompleted ? TaskStatus.completed : TaskStatus.incomplete;
+    final now = DateTime.now();
 
+    // 乐观更新：立即更新 UI
     setState(() {
-      final index = _mockTasks.indexWhere((t) => t.id == task.id);
+      final index = _tasks.indexWhere((t) => t.id == task.id);
       if (index != -1) {
-        final currentTask = _mockTasks[index];
-        final newStatus = currentTask.isCompleted
-            ? TaskStatus.incomplete
-            : TaskStatus.completed;
-        final now = DateTime.now();
-
-        // Also update all subtasks to match parent status
-        final updatedSubtasks = currentTask.subTasks.map((subTask) {
-          return subTask.copyWith(
-            status: newStatus,
-            completedAt: newStatus == TaskStatus.completed ? now : null,
-          );
-        }).toList();
-
-        _mockTasks[index] = currentTask.copyWith(
+        final currentTask = _tasks[index];
+        final updatedSubtasks = currentTask.subTasks
+            .map((s) => s.copyWith(
+                  status: newStatus,
+                  completedAt: newCompleted ? now : null,
+                ))
+            .toList();
+        _tasks[index] = currentTask.copyWith(
           status: newStatus,
-          completedAt: newStatus == TaskStatus.completed ? now : null,
+          completedAt: newCompleted ? now : null,
           subTasks: updatedSubtasks,
         );
       }
     });
 
-    // Check if celebration animation is triggered
-    _checkAndTriggerCelebration(wasAllCompleted);
+    // 调用后端 API
+    final result = await TaskService.instance.toggleComplete(
+      task.id,
+      newCompleted,
+    );
+
+    if (result.isSuccess) {
+      // 完成任务时调用打卡接口
+      if (newCompleted) {
+        final today = DateTime.now();
+        final checkInResult = await TaskService.instance.checkIn(
+          DateTime(today.year, today.month, today.day),
+        );
+        if (mounted && checkInResult.isSuccess) {
+          setState(() {
+            _consecutiveDays = checkInResult.consecutiveDays;
+          });
+        }
+      }
+      _checkAndTriggerCelebration(wasAllCompleted);
+    } else {
+      // API 失败，回滚到原始状态
+      setState(() {
+        final index = _tasks.indexWhere((t) => t.id == task.id);
+        if (index != -1) {
+          _tasks[index] = task;
+        }
+      });
+      _showError(result.errorMessage ?? tr('error_server'));
+    }
   }
 
-  /// Check if all today's tasks are completed
+  /// 判断当前显示的任务是否全部完成（仅在查看今天时有效）
   bool _areAllTodayTasksCompleted() {
-    final todayTasks = _getTodayTasks();
-    if (todayTasks.isEmpty) return false;
-    return todayTasks.every((task) => task.isCompleted);
-  }
-
-  /// Get today's tasks
-  List<Task> _getTodayTasks() {
-    final now = DateTime.now();
-    return _mockTasks.where((task) {
-      return task.date.year == now.year &&
-          task.date.month == now.month &&
-          task.date.day == now.day;
-    }).toList();
+    if (!_isToday(_selectedDate)) return false;
+    if (_tasks.isEmpty) return false;
+    return _tasks.every((task) => task.isCompleted);
   }
 
   /// Check and trigger celebration animation
@@ -356,216 +345,87 @@ class PlanPageState extends State<PlanPage> {
     }
   }
 
-  /// Toggle subtask completion status (also updates parent task status)
-  void _handleToggleSubTaskComplete(Task task, SubTask subTask) {
-    final wasAllCompleted = _areAllTodayTasksCompleted();
-
-    setState(() {
-      final taskIndex = _mockTasks.indexWhere((t) => t.id == task.id);
-      if (taskIndex != -1) {
-        final currentTask = _mockTasks[taskIndex];
-        final subTaskIndex = currentTask.subTasks.indexWhere(
-          (s) => s.id == subTask.id,
-        );
-        if (subTaskIndex != -1) {
-          final newSubtaskStatus = subTask.isCompleted
-              ? TaskStatus.incomplete
-              : TaskStatus.completed;
-          final updatedSubTasks = List<SubTask>.from(currentTask.subTasks);
-          updatedSubTasks[subTaskIndex] = subTask.copyWith(
-            status: newSubtaskStatus,
-            completedAt: newSubtaskStatus == TaskStatus.completed
-                ? DateTime.now()
-                : null,
-          );
-
-          // Check if all subtasks are now completed
-          final allSubtasksCompleted =
-              updatedSubTasks.isNotEmpty &&
-              updatedSubTasks.every((s) => s.isCompleted);
-
-          // Update parent task status based on subtasks
-          TaskStatus newParentStatus;
-          DateTime? completedAt;
-          if (allSubtasksCompleted) {
-            newParentStatus = TaskStatus.completed;
-            completedAt = DateTime.now();
-          } else {
-            newParentStatus = TaskStatus.incomplete;
-            completedAt = null;
-          }
-
-          _mockTasks[taskIndex] = currentTask.copyWith(
-            subTasks: updatedSubTasks,
-            status: newParentStatus,
-            completedAt: completedAt,
-          );
-        }
-      }
-    });
-
-    // Check celebration trigger
-    _checkAndTriggerCelebration(wasAllCompleted);
-  }
-
-  /// Toggle subtask completion status from sheet
-  void _handleToggleSubtaskFromSheet(Task task, SubTask subTask) {
-    _handleToggleSubTaskComplete(task, subTask);
-  }
-
-  /// Delete subtask
-  void _handleDeleteSubtask(Task task, SubTask subTask) {
-    setState(() {
-      final taskIndex = _mockTasks.indexWhere((t) => t.id == task.id);
-      if (taskIndex != -1) {
-        final currentTask = _mockTasks[taskIndex];
-        final updatedSubtasks = currentTask.subTasks
-            .where((s) => s.id != subTask.id)
-            .toList();
-
-        // Update parent task status based on remaining subtasks
-        TaskStatus newParentStatus = currentTask.status;
-        DateTime? completedAt = currentTask.completedAt;
-
-        if (updatedSubtasks.isNotEmpty) {
-          final allSubtasksCompleted = updatedSubtasks.every(
-            (s) => s.isCompleted,
-          );
-          if (allSubtasksCompleted) {
-            newParentStatus = TaskStatus.completed;
-            completedAt = DateTime.now();
-          } else {
-            newParentStatus = TaskStatus.incomplete;
-            completedAt = null;
-          }
-        }
-
-        _mockTasks[taskIndex] = currentTask.copyWith(
-          subTasks: updatedSubtasks,
-          status: newParentStatus,
-          completedAt: completedAt,
-        );
-      }
-    });
-
-    debugPrint('Deleted subtask: ${subTask.title}');
-  }
-
   void _handleTaskTap(Task task) {
-    // Show add subtask sheet
-    showAddSubtaskSheet(
+    // 显示更新任务浮层
+    showUpdateTaskSheet(
       context,
-      parentTask: task,
-      onSave: (title) {
-        _handleAddSubtask(task, title);
-      },
-      onParentTaskTitleChanged: (newTitle) {
-        _handleUpdateTaskTitle(task, newTitle);
+      task: task,
+      onSave: (title, priority, date) {
+        _handleUpdateTask(task, title, priority, date);
       },
     );
   }
 
-  /// Update parent task title (frontend only)
-  void _handleUpdateTaskTitle(Task task, String newTitle) {
+  /// 更新任务（标题/优先级/日期），调用后端 API
+  Future<void> _handleUpdateTask(
+    Task task,
+    String newTitle,
+    TaskPriority newPriority,
+    DateTime newDate,
+  ) async {
+    // 判断哪些字段有变化
+    final titleChanged = newTitle != task.title;
+    final priorityChanged = newPriority != task.priority;
+    final dateChanged = !_isSameDay(newDate, task.date);
+
+    // 没有任何修改，直接返回
+    if (!titleChanged && !priorityChanged && !dateChanged) return;
+
+    // 乐观更新
     setState(() {
-      final taskIndex = _mockTasks.indexWhere((t) => t.id == task.id);
-      if (taskIndex != -1) {
-        _mockTasks[taskIndex] = _mockTasks[taskIndex].copyWith(title: newTitle);
-      }
-    });
-    debugPrint('Updated task title to: $newTitle');
-  }
-
-  /// Generate unique subtask ID
-  String _generateSubtaskId() {
-    return 'subtask_${DateTime.now().millisecondsSinceEpoch}';
-  }
-
-  /// Add subtask to a parent task
-  SubTask _handleAddSubtask(Task parentTask, String title) {
-    final newSubtask = SubTask(
-      id: _generateSubtaskId(),
-      parentId: parentTask.id,
-      title: title,
-      createdAt: DateTime.now(),
-    );
-
-    setState(() {
-      final taskIndex = _mockTasks.indexWhere((t) => t.id == parentTask.id);
-      if (taskIndex != -1) {
-        final updatedSubtasks = [...parentTask.subTasks, newSubtask];
-        _mockTasks[taskIndex] = parentTask.copyWith(subTasks: updatedSubtasks);
+      final index = _tasks.indexWhere((t) => t.id == task.id);
+      if (index != -1) {
+        _tasks[index] = _tasks[index].copyWith(
+          title: newTitle,
+          priority: newPriority,
+          date: newDate,
+        );
       }
     });
 
-    debugPrint('Added subtask: $title to task: ${parentTask.title}');
-    return newSubtask;
-  }
-
-  /// Delete task from list
-  void _handleDeleteTask(Task task) {
-    setState(() {
-      _mockTasks = _mockTasks.where((t) => t.id != task.id).toList();
-    });
-    debugPrint('Deleted task: ${task.title}');
-  }
-
-  /// Show subtask list sheet
-  void _handleShowSubtasks(Task task) {
-    // Get the latest task data
-    final currentTask = _mockTasks.firstWhere(
-      (t) => t.id == task.id,
-      orElse: () => task,
+    final result = await TaskService.instance.updateTask(
+      task.id,
+      title: titleChanged ? newTitle : null,
+      priority: priorityChanged ? newPriority.apiValue : null,
+      date: dateChanged ? newDate : null,
     );
 
-    showSubtaskListSheet(
-      context,
-      parentTask: currentTask,
-      onToggleSubtaskComplete: (subTask) {
-        // Toggle without closing/reopening sheet
-        _handleToggleSubtaskFromSheet(currentTask, subTask);
-      },
-      onDeleteSubtask: (subTask) {
-        _handleDeleteSubtask(currentTask, subTask);
-      },
-      onSubtaskTitleChanged: (subTask, newTitle) {
-        _handleUpdateSubtaskTitle(currentTask, subTask, newTitle);
-      },
-      onAddSubtask: () {
-        showAddSubtaskSheet(
-          context,
-          parentTask: currentTask,
-          onSave: (title) {
-            _handleAddSubtask(currentTask, title);
-          },
-          onParentTaskTitleChanged: (newTitle) {
-            _handleUpdateTaskTitle(currentTask, newTitle);
-          },
-        );
-      },
-    );
-  }
-
-  /// Update subtask title (frontend only)
-  void _handleUpdateSubtaskTitle(Task task, SubTask subTask, String newTitle) {
-    setState(() {
-      final taskIndex = _mockTasks.indexWhere((t) => t.id == task.id);
-      if (taskIndex != -1) {
-        final currentTask = _mockTasks[taskIndex];
-        final subTaskIndex = currentTask.subTasks.indexWhere(
-          (s) => s.id == subTask.id,
-        );
-        if (subTaskIndex != -1) {
-          final updatedSubTasks = List<SubTask>.from(currentTask.subTasks);
-          updatedSubTasks[subTaskIndex] = subTask.copyWith(title: newTitle);
-          _mockTasks[taskIndex] = currentTask.copyWith(
-            subTasks: updatedSubTasks,
-          );
+    if (result.isSuccess) {
+      // 如果日期变了，任务不再属于当前日期，需要刷新列表
+      if (dateChanged) {
+        await _fetchTasks();
+      }
+    } else {
+      // API 失败，回滚
+      setState(() {
+        final index = _tasks.indexWhere((t) => t.id == task.id);
+        if (index != -1) {
+          _tasks[index] = task;
         }
-      }
-    });
-    debugPrint('Updated subtask title to: $newTitle');
+      });
+      _showError(result.errorMessage ?? tr('error_server'));
+    }
   }
+
+  /// 删除任务（乐观更新 + API 调用）
+  Future<void> _handleDeleteTask(Task task) async {
+    // 乐观更新：立即从列表移除
+    final previousTasks = List<Task>.from(_tasks);
+    setState(() {
+      _tasks = _tasks.where((t) => t.id != task.id).toList();
+    });
+
+    final result = await TaskService.instance.deleteTask(task.id);
+
+    if (!result.isSuccess) {
+      // API 失败，回滚
+      setState(() {
+        _tasks = previousTasks;
+      });
+      _showError(result.errorMessage ?? tr('error_server'));
+    }
+  }
+
 
   @override
   Widget build(BuildContext context) {
@@ -578,7 +438,7 @@ class PlanPageState extends State<PlanPage> {
             PlanHeader(
               avatarPath: _selectedAvatar,
               nickname: _nickname,
-              consecutiveDays: 7,
+              consecutiveDays: _consecutiveDays,
               onSettingsTap: () {
                 AudioService.instance.playButton();
                 widget.onSettingsTap?.call();
@@ -606,17 +466,25 @@ class PlanPageState extends State<PlanPage> {
 
                     SizedBox(height: _isToday(_selectedDate) ? 10 : 2),
 
-                    // Eisenhower Matrix
-                    EisenhowerMatrix(
-                      tasks: _tasksForSelectedDate,
-                      showCompleted: _showCompleted,
-                      onTaskTap: _handleTaskTap,
-                      onToggleTaskComplete: _handleToggleTaskComplete,
-                      onToggleSubTaskComplete: _handleToggleSubTaskComplete,
-                      onDeleteTask: _handleDeleteTask,
-                      onShowSubtasks: _handleShowSubtasks,
-                      onQuadrantTap: (priority) =>
-                          handleAddTask(priority: priority),
+                    // Eisenhower Matrix（加载时显示 loading 指示器）
+                    Stack(
+                      children: [
+                        EisenhowerMatrix(
+                          tasks: _tasksForSelectedDate,
+                          showCompleted: _showCompleted,
+                          onTaskTap: _handleTaskTap,
+                          onToggleTaskComplete: _handleToggleTaskComplete,
+                          onDeleteTask: _handleDeleteTask,
+                          onQuadrantTap: (priority) =>
+                              handleAddTask(priority: priority),
+                        ),
+                        if (_isLoading && _tasks.isEmpty)
+                          const Positioned.fill(
+                            child: Center(
+                              child: CircularProgressIndicator(),
+                            ),
+                          ),
+                      ],
                     ),
 
                     const SizedBox(height: 10),

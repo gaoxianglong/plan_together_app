@@ -40,10 +40,8 @@ class ApiResponse<T> {
 }
 
 /// Token 刷新回调（用于通知 AuthService 更新本地存储）
-typedef TokenRefreshCallback = Future<void> Function(
-  String accessToken,
-  String refreshToken,
-);
+typedef TokenRefreshCallback =
+    Future<void> Function(String accessToken, String refreshToken);
 
 /// API 客户端服务
 class ApiClient {
@@ -53,16 +51,16 @@ class ApiClient {
   final _uuid = const Uuid();
   String? _accessToken;
   String? _refreshToken;
-  
+
   /// 401 未授权回调（用于跳转登录页）
   VoidCallback? _onUnauthorized;
-  
+
   /// Token 刷新成功回调（用于更新本地存储）
   TokenRefreshCallback? _onTokenRefreshed;
-  
+
   /// 是否正在刷新 Token（防止并发刷新）
   bool _isRefreshing = false;
-  
+
   /// 等待刷新完成的 Completer 列表
   final List<Completer<bool>> _refreshWaiters = [];
 
@@ -70,7 +68,7 @@ class ApiClient {
   void setOnUnauthorized(VoidCallback callback) {
     _onUnauthorized = callback;
   }
-  
+
   /// 设置 Token 刷新成功回调
   void setOnTokenRefreshed(TokenRefreshCallback callback) {
     _onTokenRefreshed = callback;
@@ -96,7 +94,7 @@ class ApiClient {
 
   /// 生成请求 ID（用于幂等）
   String generateRequestId() => _uuid.v4();
-  
+
   /// 处理 401 未授权（刷新失败后调用）
   void _handleUnauthorized() {
     if (_onUnauthorized != null) {
@@ -104,7 +102,7 @@ class ApiClient {
       _onUnauthorized!();
     }
   }
-  
+
   /// 刷新 Access Token
   /// 返回 true 表示刷新成功，false 表示刷新失败
   Future<bool> _refreshAccessToken() async {
@@ -112,23 +110,23 @@ class ApiClient {
     if (_refreshToken == null) {
       return false;
     }
-    
+
     // 如果已经在刷新中，等待刷新完成
     if (_isRefreshing) {
       final completer = Completer<bool>();
       _refreshWaiters.add(completer);
       return completer.future;
     }
-    
+
     _isRefreshing = true;
-    
+
     try {
-      final url = Uri.parse('${ApiConfig.apiPrefix}/auth/refresh');
+      final url = Uri.parse('${ApiConfig.apiPrefix}/user/refreshAccessToken');
       final headers = {
         'Content-Type': 'application/json',
         'Accept': 'application/json',
       };
-      
+
       final response = await http
           .post(
             url,
@@ -136,29 +134,29 @@ class ApiClient {
             body: jsonEncode({'refreshToken': _refreshToken}),
           )
           .timeout(Duration(seconds: ApiConfig.timeoutSeconds));
-      
+
       if (response.body.isEmpty) {
         _notifyRefreshWaiters(false);
         return false;
       }
-      
+
       final jsonBody = jsonDecode(response.body) as Map<String, dynamic>;
       final code = jsonBody['code'] as int;
-      
+
       if (code == 0 && jsonBody['data'] != null) {
         // 刷新成功，更新 Token
         final data = jsonBody['data'] as Map<String, dynamic>;
         final newAccessToken = data['accessToken'] as String;
         final newRefreshToken = data['refreshToken'] as String;
-        
+
         _accessToken = newAccessToken;
         _refreshToken = newRefreshToken;
-        
+
         // 通知 AuthService 更新本地存储
         if (_onTokenRefreshed != null) {
           await _onTokenRefreshed!(newAccessToken, newRefreshToken);
         }
-        
+
         _notifyRefreshWaiters(true);
         return true;
       } else {
@@ -173,7 +171,7 @@ class ApiClient {
       _isRefreshing = false;
     }
   }
-  
+
   /// 通知所有等待刷新的请求
   void _notifyRefreshWaiters(bool success) {
     for (final completer in _refreshWaiters) {
@@ -181,10 +179,10 @@ class ApiClient {
     }
     _refreshWaiters.clear();
   }
-  
+
   /// 标记是否正在进行重试（防止无限重试）
   bool _isRetrying = false;
-  
+
   /// 处理 Token 刷新并重试请求
   /// 返回重试后的响应，如果不需要重试或重试失败则返回 null
   Future<ApiResponse<T>?> _handleTokenRefreshAndRetry<T>(
@@ -194,7 +192,7 @@ class ApiClient {
     if (_isRetrying) {
       return null;
     }
-    
+
     // 尝试刷新 Token
     final refreshSuccess = await _refreshAccessToken();
     if (refreshSuccess) {
@@ -269,7 +267,7 @@ class ApiClient {
 
       final jsonBody = jsonDecode(response.body) as Map<String, dynamic>;
       final apiResponse = ApiResponse<T>.fromJson(jsonBody, fromJsonT);
-      
+
       // 检测 401 未授权，尝试刷新 Token 并重试
       if (apiResponse.code == 401 && requireAuth) {
         final retryResponse = await _handleTokenRefreshAndRetry<T>(
@@ -286,7 +284,7 @@ class ApiClient {
           return retryResponse;
         }
       }
-      
+
       return apiResponse;
     } on FormatException catch (e) {
       // JSON 解析错误
@@ -296,18 +294,18 @@ class ApiClient {
       );
     } catch (e) {
       // 网络错误或超时
-      return ApiResponse(
-        code: -1,
-        message: 'Network error: ${e.toString()}',
-      );
+      return ApiResponse(code: -1, message: 'Network error: ${e.toString()}');
     }
   }
 
   /// GET 请求
+  /// [autoRefreshToken] 收到 401 时是否自动刷新 Token 并重试，默认 true
+  /// 会话检查等仅检测状态的接口应设为 false，避免产生多余的刷新请求
   Future<ApiResponse<T>> get<T>(
     String path, {
     Map<String, String>? queryParams,
     bool requireAuth = true,
+    bool autoRefreshToken = true,
     T? Function(dynamic)? fromJsonT,
   }) async {
     var url = Uri.parse('${ApiConfig.apiPrefix}$path');
@@ -324,14 +322,15 @@ class ApiClient {
 
       final jsonBody = jsonDecode(response.body) as Map<String, dynamic>;
       final apiResponse = ApiResponse<T>.fromJson(jsonBody, fromJsonT);
-      
+
       // 检测 401 未授权，尝试刷新 Token 并重试
-      if (apiResponse.code == 401 && requireAuth) {
+      if (apiResponse.code == 401 && requireAuth && autoRefreshToken) {
         final retryResponse = await _handleTokenRefreshAndRetry<T>(
           () => get<T>(
             path,
             queryParams: queryParams,
             requireAuth: requireAuth,
+            autoRefreshToken: autoRefreshToken,
             fromJsonT: fromJsonT,
           ),
         );
@@ -339,13 +338,10 @@ class ApiClient {
           return retryResponse;
         }
       }
-      
+
       return apiResponse;
     } catch (e) {
-      return ApiResponse(
-        code: -1,
-        message: 'Network error: ${e.toString()}',
-      );
+      return ApiResponse(code: -1, message: 'Network error: ${e.toString()}');
     }
   }
 
@@ -376,7 +372,7 @@ class ApiClient {
 
       final jsonBody = jsonDecode(response.body) as Map<String, dynamic>;
       final apiResponse = ApiResponse<T>.fromJson(jsonBody, fromJsonT);
-      
+
       // 检测 401 未授权，尝试刷新 Token 并重试
       if (apiResponse.code == 401 && requireAuth) {
         final retryResponse = await _handleTokenRefreshAndRetry<T>(
@@ -393,13 +389,10 @@ class ApiClient {
           return retryResponse;
         }
       }
-      
+
       return apiResponse;
     } catch (e) {
-      return ApiResponse(
-        code: -1,
-        message: 'Network error: ${e.toString()}',
-      );
+      return ApiResponse(code: -1, message: 'Network error: ${e.toString()}');
     }
   }
 
@@ -430,7 +423,7 @@ class ApiClient {
 
       final jsonBody = jsonDecode(response.body) as Map<String, dynamic>;
       final apiResponse = ApiResponse<T>.fromJson(jsonBody, fromJsonT);
-      
+
       // 检测 401 未授权，尝试刷新 Token 并重试
       if (apiResponse.code == 401 && requireAuth) {
         final retryResponse = await _handleTokenRefreshAndRetry<T>(
@@ -447,13 +440,10 @@ class ApiClient {
           return retryResponse;
         }
       }
-      
+
       return apiResponse;
     } catch (e) {
-      return ApiResponse(
-        code: -1,
-        message: 'Network error: ${e.toString()}',
-      );
+      return ApiResponse(code: -1, message: 'Network error: ${e.toString()}');
     }
   }
 }

@@ -18,8 +18,8 @@ class MePage extends StatefulWidget {
 }
 
 class _MePageState extends State<MePage> {
-  // Mock data: consecutive days
-  final int _consecutiveDays = 7;
+  // 连续打卡天数（从 API 获取）
+  int _consecutiveDays = 0;
 
   // Sound effect status (read from AudioService)
   bool _soundEnabled = true;
@@ -80,6 +80,9 @@ class _MePageState extends State<MePage> {
 
     // Handle focus loss to save nickname
     _nicknameFocusNode.addListener(_onNicknameFocusChange);
+
+    // 拉取用户信息（带 30 分钟缓存）
+    _fetchUserProfile();
   }
 
   @override
@@ -91,6 +94,28 @@ class _MePageState extends State<MePage> {
     _nicknameFocusNode.removeListener(_onNicknameFocusChange);
     _nicknameFocusNode.dispose();
     super.dispose();
+  }
+
+  /// 拉取用户信息（带 30 分钟缓存）
+  Future<void> _fetchUserProfile({bool forceRefresh = false}) async {
+    final result = await AuthService.instance.getCachedUserProfile(
+      forceRefresh: forceRefresh,
+    );
+    if (mounted && result.isSuccess) {
+      setState(() {
+        _consecutiveDays = result.consecutiveDays ?? 0;
+      });
+      // 同步昵称和头像到本地服务
+      if (result.nickname != null && result.nickname!.isNotEmpty) {
+        NicknameService.instance.setNickname(result.nickname!);
+      }
+      if (result.avatar != null && result.avatar!.isNotEmpty) {
+        final assetPath = AvatarService.filenameToAssetPath(result.avatar!);
+        if (AvatarService.isValidAvatarFilename(result.avatar!)) {
+          await AvatarService.instance.setAvatar(assetPath);
+        }
+      }
+    }
   }
 
   void _onNicknameFocusChange() {
@@ -148,6 +173,8 @@ class _MePageState extends State<MePage> {
     if (result.isSuccess) {
       // API 成功后更新本地存储
       NicknameService.instance.setNickname(newNickname);
+      // 重新拉取用户信息（缓存已被 updateProfile 清除）
+      _fetchUserProfile(forceRefresh: true);
     } else {
       // 更新失败，恢复原昵称
       _nicknameController.text = _nickname;
@@ -919,6 +946,8 @@ class _MePageState extends State<MePage> {
             await AvatarService.instance.setAvatar(avatar);
             if (mounted) {
               Navigator.pop(context);
+              // 重新拉取用户信息（缓存已被 updateProfile 清除）
+              _fetchUserProfile(forceRefresh: true);
             }
           } else {
             // 更新失败，显示错误浮层

@@ -21,7 +21,6 @@
 4. [视图聚合](#4-视图聚合)
 5. [专注模块](#5-专注模块)
 6. [用户中心](#6-用户中心)
-7. [会员权益](#7-会员权益)
 8. [错误码定义](#8-错误码定义)
 
 ---
@@ -122,7 +121,7 @@
 
 **接口描述**：用户通过邮箱和密码登录
 
-**接口路径**：`POST /api/v1/auth/login`
+**接口路径**：`POST /api/v1/user/login`
 
 **请求参数**：
 ```json
@@ -186,7 +185,7 @@
 
 **接口描述**：用户通过邮箱注册新账号
 
-**接口路径**：`POST /api/v1/auth/register`
+**接口路径**：`POST /api/v1/user/register`
 
 **请求头**：
 - `X-Request-Id: {uuid}`（幂等）
@@ -251,7 +250,7 @@
 
 **接口描述**：用户通过邮箱找回密码，账号对应的密码会通过maidenplan@163.com发送给用户
 
-**接口路径**：`POST /api/v1/auth/forgot-password`
+**接口路径**：`POST /api/v1/user/forgot-password`
 
 **请求参数**：
 ```json
@@ -290,7 +289,7 @@
 
 **接口描述**：使用 refresh_token 刷新 access_token
 
-**接口路径**：`POST /api/v1/auth/refresh`
+**接口路径**：`POST /api/v1/user/refreshAccessToken`
 
 **请求参数**：
 ```json
@@ -321,7 +320,7 @@
 
 **接口描述**：退出当前设备登录，吊销 token
 
-**接口路径**：`POST /api/v1/auth/logout`
+**接口路径**：`POST /api/v1/user/logout`
 
 **请求头**：`Authorization: Bearer {access_token}`
 
@@ -344,7 +343,7 @@
 
 **接口描述**：查询当前用户登录的所有设备
 
-**接口路径**：`GET /api/v1/auth/devices`
+**接口路径**：`GET /api/v1/user/devices`
 
 **请求头**：`Authorization: Bearer {access_token}`
 
@@ -382,7 +381,7 @@
 
 **接口描述**：退出指定设备登录（仅对非当前设备生效）
 
-**接口路径**：`POST /api/v1/auth/devices/{deviceId}/logout`
+**接口路径**：`POST /api/v1/user/devices/{deviceId}/logout`
 
 **请求头**：`Authorization: Bearer {access_token}`
 
@@ -410,11 +409,14 @@
 
 **接口描述**：检查当前会话是否有效，供前端定时轮询。如果会话失效（被踢出/退出/过期），前端应跳转到登录页
 
-**接口路径**：`GET /api/v1/auth/session/check`
+**接口路径**：`GET /api/v1/user/session/check`
 
-**请求头**：`Authorization: Bearer {access_token}`
+**请求头**：无
 
 **请求参数**：无
+{
+    "refreshToken":"123"
+}
 
 **响应示例**（会话有效）：
 ```json
@@ -449,7 +451,7 @@
 
 **接口描述**：修改当前登录用户的密码
 
-**接口路径**：`POST /api/v1/auth/password`
+**接口路径**：`POST /api/v1/user/password`
 
 **请求头**：`Authorization: Bearer {access_token}`
 
@@ -526,12 +528,7 @@
           "status": "INCOMPLETE",
           "date": "2026-02-10",
           "createdAt": "2026-02-10T09:00:00.000Z",
-          "completedAt": null,
-          "repeatType": "NONE",
-          "repeatConfig": null,
-          "isRepeatInstance": false,
-          "repeatParentId": null,
-          "subTasks": []
+          "completedAt": null
         }
       ],
       "P1": [
@@ -542,12 +539,7 @@
           "status": "INCOMPLETE",
           "date": "2026-02-10",
           "createdAt": "2026-02-08T09:00:00.000Z",
-          "completedAt": null,
-          "repeatType": "DAILY",
-          "repeatConfig": null,
-          "isRepeatInstance": true,
-          "repeatParentId": "abc-def-123",
-          "subTasks": []
+          "completedAt": null
         }
       ],
       "P2": [],
@@ -560,29 +552,6 @@
 **说明**：
 - `hasUncheckedTasks`：各象限是否有未完成任务（用于日历小圆点展示）
 - `tasks`：按象限分组的任务列表，同象限内按创建时间升序排列
-- 重复任务采用**虚拟展开**机制：数据库只存 1 条模板，查询时动态计算匹配日期生成虚拟任务
-- 虚拟任务的 `id` 格式为 `{模板ID}_{日期}`，实例任务的 `id` 为纯 UUID
-
-**查询内部逻辑**：
-1. 查询 `date=D` 的所有实例任务（普通任务 + 已实例化的重复任务）
-2. 查询所有重复模板（`repeat_type != NONE`, `is_repeat_instance = 0`, `date <= D`）
-3. 对每个模板匹配日期 D（DAILY/WEEKLY/MONTHLY 规则）
-4. 排除已有实例的模板，为匹配的模板生成虚拟任务
-5. 合并实例任务 + 虚拟任务返回
-
-**前端识别规则**：
-
-| 类型 | ID 格式 | isRepeatInstance | repeatParentId |
-|------|---------|-----------------|----------------|
-| 普通任务 | `{uuid}` | false | null |
-| 重复模板 | `{uuid}` | false | null |
-| 虚拟任务（未操作） | `{uuid}_{YYYY-MM-DD}` | true | 模板 UUID |
-| 实例任务（已操作） | `{uuid}` | true | 模板 UUID |
-
-**虚拟任务操作规则**：
-- 前端对虚拟任务执行操作（完成/编辑/删除）时，直接调用对应接口传虚拟 ID
-- 后端自动实例化后执行操作，返回新的实例 ID
-- 前端收到响应后用新 ID 替换虚拟 ID
 
 ---
 
@@ -592,19 +561,16 @@
 
 **接口路径**：`POST /api/v1/tasks`
 
-**请求头**：
-- `Authorization: Bearer {access_token}`
-- `X-Request-Id: {uuid}`（幂等）
+**请求头**：`Authorization: Bearer {access_token}`
 
 **请求参数**：
+
+示例：
 ```json
 {
   "title": "早起跑步",
   "priority": "P1",
-  "date": "2026-02-08",
-  "repeatType": "DAILY",
-  "repeatConfig": null,
-  "repeatEndDate": null
+  "date": "2026-02-08"
 }
 ```
 
@@ -613,25 +579,6 @@
 | title | string | 是 | 任务标题，1-100 字符 |
 | priority | string | 是 | 优先级：P0/P1/P2/P3 |
 | date | string | 是 | 归属日期，YYYY-MM-DD，范围：今天-365天 ~ 今天+365天 |
-| repeatType | string | 否 | 重复类型：NONE/DAILY/WEEKLY/MONTHLY，默认 NONE |
-| repeatConfig | object | 否 | 重复配置（见下方说明） |
-| repeatEndDate | string | 否 | 重复结束日期，YYYY-MM-DD，为空表示永久重复 |
-
-**重复配置说明**：
-
-- **DAILY**：无需配置，`repeatConfig` 为 `null`
-- **WEEKLY**：
-  ```json
-  {
-    "weekdays": [1, 3, 5]  // 周一、周三、周五（1-7 表示周一到周日）
-  }
-  ```
-- **MONTHLY**：
-  ```json
-  {
-    "dayOfMonth": 1  // 每月 1 号（1-31）
-  }
-  ```
 
 **响应示例**：
 ```json
@@ -644,104 +591,48 @@
     "priority": "P1",
     "status": "INCOMPLETE",
     "date": "2026-02-08",
-    "repeatType": "DAILY",
-    "repeatConfig": null,
-    "repeatEndDate": null,
     "createdAt": "2026-02-08T09:00:00.000Z"
   }
 }
 ```
 
-**说明**：
-- 重复任务只创建 1 条模板记录，不预生成实例
-- 创建后，查询 `date >= 2026-02-08` 的任何日期都能看到该任务（虚拟展开）
-
 **错误码**：
 - `3001`：任务标题为空或超长
 - `3002`：日期超出范围（今天-365天 ~ 今天+365天）
 - `3003`：单日任务数超出上限（50 条）
-- `3004`：重复配置格式错误
 
-**幂等要求**：幂等（同一 Request-Id 重复请求返回相同任务）
-
----
-
-### 3.3 实例化虚拟任务
-
-**接口描述**：将重复任务的虚拟任务持久化为实例（后端操作接口也会自动调用）
-
-**接口路径**：`POST /api/v1/tasks/{taskId}/materialize`
-
-**请求头**：
-- `Authorization: Bearer {access_token}`
-
-**路径参数**：
-- `taskId`：虚拟任务 ID（格式 `{模板ID}_{YYYY-MM-DD}`）
-
-**响应示例**：
-```json
-{
-  "code": 0,
-  "message": "success",
-  "data": {
-    "id": "new-instance-uuid",
-    "title": "早起跑步",
-    "priority": "P1",
-    "status": "INCOMPLETE",
-    "date": "2026-02-10",
-    "repeatType": "DAILY",
-    "repeatConfig": null,
-    "isRepeatInstance": true,
-    "repeatParentId": "abc-def-123",
-    "createdAt": "2026-02-10T08:00:00.000Z"
-  }
-}
-```
-
-**说明**：
-- 若已有实例存在（已实例化过），直接返回已有实例
-- 若 taskId 不是虚拟格式或模板不存在，返回 `3006`
-- 其他接口（更新/完成/删除）传入虚拟 ID 时会自动调用本逻辑，无需前端显式调用
-
-**错误码**：
-- `3006`：父任务不存在
-- `3008`：虚拟任务 ID 格式错误
+**说明**：任务名称允许重复，不做幂等限制
 
 ---
 
 ### 3.4 更新任务
 
-**接口描述**：更新任务信息（标题、优先级、日期、重复设置）
+**接口描述**：更新任务信息（标题、优先级、日期）
 
 **接口路径**：`PUT /api/v1/tasks/{taskId}`
 
-**请求头**：
-- `Authorization: Bearer {access_token}`
-- `X-Request-Id: {uuid}`（幂等）
+**请求头**：`Authorization: Bearer {access_token}`
 
 **路径参数**：
-- `taskId`：任务 ID（支持模板 ID、虚拟 ID、实例 ID）
+- `taskId`：任务 ID
 
 **请求参数**：
+
+示例1 - 非重复任务更新：
 ```json
 {
-  "title": "早起跑步（更新）",
+  "title": "完成报告（更新）",
   "priority": "P0",
-  "date": "2026-01-28",
-  "repeatType": "WEEKLY",
-  "repeatConfig": {
-    "weekdays": [1, 3, 5]
-  }
+  "date": "2026-02-10"
 }
 ```
+
 
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
 | title | string | 否 | 任务标题 |
 | priority | string | 否 | 优先级 |
-| date | string | 否 | 归属日期（修改重复时作为新起始日期） |
-| repeatType | string | 否 | 重复类型：NONE/DAILY/WEEKLY/MONTHLY |
-| repeatConfig | object | 否 | 重复配置 |
+| date | string | 否 | 归属日期（仅非重复任务使用） |
 
 **响应示例**：
 ```json
@@ -749,38 +640,14 @@
   "code": 0,
   "message": "success",
   "data": {
-    "id": "template-task-uuid",
+    "id": "task-uuid",
     "title": "早起跑步（更新）",
     "priority": "P0",
     "date": "2026-02-08",
-    "repeatType": "WEEKLY",
-    "repeatConfig": {
-      "weekdays": [1, 3, 5]
-    },
     "updatedAt": "2026-02-08T10:00:00.000Z"
   }
 }
 ```
-
-**不修改重复设置时**（仅修改 title/priority/date）：
-- 若 `taskId` 为虚拟 ID，后端自动实例化后更新，响应返回新实例 ID
-- 修改实例任务仅影响该实例，不影响模板和其他日期
-
-**修改重复设置时**（传入 `repeatType`）：
-- 支持传入任意 ID 类型（模板 ID、虚拟 ID、实例 ID），后端自动定位到模板任务进行修改
-- 新重复规则从生效日期开始，只影响未来日期，已完成的历史实例不受影响
-- 生效日期规则：传入 `date` 则使用 `date`；未传 `date` 则默认今天
-- 生效日期之后的旧实例会被自动清理，按新规则重新生成虚拟任务
-- 响应返回的 `id` 是模板任务的 ID
-- 支持的变更场景：
-  - 非重复 → 重复（DAILY/WEEKLY/MONTHLY）
-  - DAILY → WEEKLY / MONTHLY
-  - WEEKLY → DAILY / MONTHLY
-  - MONTHLY → DAILY / WEEKLY
-  - 重复 → 非重复（NONE）
-
-**幂等要求**：幂等
-
 ---
 
 ### 3.5 删除任务
@@ -791,21 +658,10 @@
 
 **请求头**：
 - `Authorization: Bearer {access_token}`
-- `X-Request-Id: {uuid}`（幂等）
 
 **路径参数**：
-- `taskId`：任务 ID（支持虚拟 ID）
+- `taskId`：任务 ID
 
-**请求参数**：
-```json
-{
-  "deleteAll": false
-}
-```
-
-| 字段 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| deleteAll | boolean | 否 | 是否删除目标日期及之后的所有（默认 false，仅删除当天） |
 
 **响应示例**：
 ```json
@@ -817,17 +673,6 @@
   }
 }
 ```
-
-**说明**：
-- `deleteAll = false`：仅删除指定日期
-  - 若 `taskId` 为虚拟 ID → 创建一条已删除的实例，该日期不再显示
-  - 若 `taskId` 为实例 ID → 逻辑删除该实例
-  - 若 `taskId` 为普通任务 ID → 逻辑删除该任务
-- `deleteAll = true`：删除目标日期及之后的所有（不影响之前）
-  - 设置模板的 `repeatEndDate` 为目标日期的前一天
-  - 逻辑删除该日期及之后的所有已实例化的任务
-  - 之前日期的任务不受影响
-
 **幂等要求**：幂等（重复删除返回成功）
 
 ---
@@ -840,7 +685,6 @@
 
 **请求头**：
 - `Authorization: Bearer {access_token}`
-- `X-Request-Id: {uuid}`（幂等）
 
 **路径参数**：
 - `taskId`：任务 ID（支持虚拟 ID，自动实例化后完成）
@@ -867,188 +711,14 @@
     "completedAt": "2026-01-27T10:30:00.000Z"
   }
 }
+
+**错误码**
+TASK_NOT_FOUND(3009, "任务不存在");
 ```
-
-**错误码**：
-- `3005`：父任务存在未完成子任务，无法直接完成
-
-**说明**：
-- 若 `taskId` 为虚拟 ID，后端自动实例化后更新状态，响应返回新实例 ID
-- 每天的重复任务有**独立的完成状态**：完成 2/10 的任务不影响 2/11 的任务
-- 父任务存在子任务时，完成状态由子任务派生
-
-**幂等要求**：幂等
 
 ---
 
-### 3.7 创建子任务
-
-**接口描述**：为指定任务创建子任务
-
-**接口路径**：`POST /api/v1/tasks/{taskId}/subtasks`
-
-**请求头**：
-- `Authorization: Bearer {access_token}`
-- `X-Request-Id: {uuid}`（幂等）
-
-**路径参数**：
-- `taskId`：父任务 ID（支持虚拟 ID，自动实例化父任务）
-
-**请求参数**：
-```json
-{
-  "title": "准备演示文档",
-  "repeatType": "NONE",
-  "repeatConfig": null
-}
-```
-
-| 字段 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| title | string | 是 | 子任务标题，1-50 字符 |
-| repeatType | string | 否 | 重复类型，默认继承父任务 |
-| repeatConfig | object | 否 | 重复配置，默认继承父任务 |
-
-**响应示例**：
-```json
-{
-  "code": 0,
-  "message": "success",
-  "data": {
-    "id": "subtask-uuid",
-    "parentId": "instance-task-uuid",
-    "title": "准备演示文档",
-    "status": "INCOMPLETE",
-    "repeatType": "NONE",
-    "createdAt": "2026-01-27T10:00:00.000Z"
-  }
-}
-```
-
-**错误码**：
-- `3006`：父任务不存在
-- `3007`：子任务数量超出上限（20 条）
-
-**重复任务说明**：
-- 若 `taskId` 为虚拟 ID（如 `{templateId}_{date}`），后端自动实例化父任务
-- 子任务创建在实例任务上，仅影响当天，不影响其他日期
-- 已有模板子任务会自动克隆到实例任务
-
-**幂等要求**：幂等
-
----
-
-### 3.8 更新子任务
-
-**接口描述**：更新子任务信息
-
-**接口路径**：`PUT /api/v1/subtasks/{subTaskId}`
-
-**请求头**：
-- `Authorization: Bearer {access_token}`
-- `X-Request-Id: {uuid}`（幂等）
-
-**路径参数**：
-- `subTaskId`：子任务 ID
-
-**请求参数**：
-```json
-{
-  "title": "准备演示文档（更新）",
-  "repeatType": "DAILY",
-  "date": "2026-02-08"
-}
-```
-
-| 字段 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| title | string | 否 | 子任务标题 |
-| repeatType | string | 否 | 重复类型 |
-| date | string | 否 | 操作日期（重复任务按日隔离，格式 YYYY-MM-DD） |
-
-**重复任务说明**：
-- 若子任务属于重复模板且传入 `date`，后端自动实例化该日期的父任务并克隆子任务，仅修改当天的副本
-
-**幂等要求**：幂等
-
----
-
-### 3.9 删除子任务
-
-**接口描述**：删除子任务（逻辑删除）
-
-**接口路径**：`DELETE /api/v1/subtasks/{subTaskId}?date=2026-02-08`
-
-**请求头**：
-- `Authorization: Bearer {access_token}`
-- `X-Request-Id: {uuid}`（幂等）
-
-**路径参数**：
-- `subTaskId`：子任务 ID
-
-**查询参数**：
-- `date`：操作日期（可选，重复任务按日隔离，格式 YYYY-MM-DD）
-
-**重复任务说明**：
-- 若子任务属于重复模板且传入 `date`，后端自动实例化该日期的父任务并克隆子任务，仅删除当天的副本
-
-**幂等要求**：幂等
-
----
-
-### 3.10 完成/反完成子任务
-
-**接口描述**：切换子任务完成状态
-
-**接口路径**：`POST /api/v1/subtasks/{subTaskId}/toggle-complete`
-
-**请求头**：
-- `Authorization: Bearer {access_token}`
-- `X-Request-Id: {uuid}`（幂等）
-
-**路径参数**：
-- `subTaskId`：子任务 ID
-
-**请求参数**：
-```json
-{
-  "completed": true,
-  "date": "2026-02-08"
-}
-```
-
-| 字段 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| completed | boolean | 是 | true=完成，false=反完成 |
-| date | string | 否 | 操作日期（重复任务按日隔离，格式 YYYY-MM-DD） |
-
-**响应示例**：
-```json
-{
-  "code": 0,
-  "message": "success",
-  "data": {
-    "id": "instance-subtask-uuid",
-    "status": "COMPLETED",
-    "completedAt": "2026-02-08T10:30:00.000Z",
-    "parentTask": {
-      "id": "instance-task-uuid",
-      "status": "INCOMPLETE"
-    }
-  }
-}
-```
-
-**重复任务说明**：
-- 若子任务属于重复模板且传入 `date`，后端自动实例化该日期的父任务并克隆子任务，仅影响当天
-- 响应中返回的 `id` 是当天实例副本的 ID
-- 响应中包含父任务最新状态
-
-**幂等要求**：幂等
-
----
-
-### 3.11 打卡
+### 3.7 打卡
 
 **接口描述**：点击"打卡/完成今日计划"按钮
 
@@ -1056,7 +726,6 @@
 
 **请求头**：
 - `Authorization: Bearer {access_token}`
-- `X-Request-Id: {uuid}`（幂等）
 
 **请求参数**：
 ```json
@@ -1088,91 +757,204 @@
 
 **幂等要求**：幂等（当日重复打卡返回相同结果）
 
+**连续天数计算规则**：
+- 首次打卡 → `consecutiveDays = 1`
+- 前一天有打卡记录 → `consecutiveDays = 上次连续天数 + 1`
+- 前一天无打卡记录（断签） → `consecutiveDays = 1`
+
+---
+
+### 3.8 查询打卡连续天数
+
+**接口描述**：查询当前用户的打卡连续天数
+
+**接口路径**：`GET /api/v1/check-in/streak`
+
+**请求头**：
+- `Authorization: Bearer {access_token}`
+
+**响应示例**：
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "consecutiveDays": 15,
+    "lastCheckInDate": "2026-02-12"
+  }
+}
+```
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| consecutiveDays | int | 当前连续打卡天数。如果连续性已断（最近打卡日不是今天或昨天），返回 0 |
+| lastCheckInDate | string | 最近一次打卡日期，YYYY-MM-DD。无打卡记录时为 null |
+
+**说明**：
+- 最近打卡日是今天 → 返回当次记录的连续天数
+- 最近打卡日是昨天 → 返回该记录的连续天数（连续性未断，今天还未打卡）
+- 最近打卡日早于昨天 → 连续性已断，返回 `consecutiveDays = 0`
+- 无打卡记录 → 返回 `consecutiveDays = 0`，`lastCheckInDate = null`
+
 ---
 
 ## 4. 视图聚合
 
-### 4.1 查询视图任务列表
+### 4.1 任务数据统计视图
 
-**接口描述**：查询周/月视图任务列表（待执行/逾期/已完成）
+**接口描述**：按"周"或"月"维度查询任务完成统计概览及对应任务列表，支持按优先级筛选
 
-**接口路径**：`GET /api/v1/views/tasks`
+**接口路径**：`GET /api/v1/tasks/stats`
 
 **请求头**：`Authorization: Bearer {access_token}`
 
 **请求参数**：
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| viewType | string | 是 | 视图类型：WEEK/MONTH |
-| statusTab | string | 是 | 状态标签：PENDING/OVERDUE/COMPLETED |
-| startDate | string | 是 | 范围起始日期，YYYY-MM-DD |
-| endDate | string | 是 | 范围结束日期，YYYY-MM-DD |
+| dimension | string | 是 | 查询维度：WEEK / MONTH |
+| date | string | 是 | 基准日期，YYYY-MM-DD，用于确定所属周或月 |
+| priorities | string | 否 | 优先级筛选，逗号分隔，如 `P0,P1`。不传或为空则查询全部优先级 |
 
-**响应示例（待执行）**：
+**请求示例**：
+```
+GET /api/v1/tasks/stats?dimension=WEEK&date=2026-02-12&priorities=P0,P1
+```
+
+**响应示例（周维度）**：
 ```json
 {
   "code": 0,
   "message": "success",
   "data": {
-    "viewType": "WEEK",
-    "statusTab": "PENDING",
-    "startDate": "2026-01-26",
-    "endDate": "2026-02-01",
-    "tasksByDate": [
+    "dimension": "WEEK",
+    "startDate": "2026-02-09",
+    "endDate": "2026-02-15",
+    "totalCompleted": 13,
+    "totalTasks": 20,
+    "totalCompletionRate": 65.0,
+    "chartData": [
       {
-        "date": "2026-01-27",
-        "dateLabel": "今天",
-        "tasks": [
-          {
-            "id": "task-uuid",
-            "title": "完成需求评审",
-            "priority": "P0",
-            "status": "INCOMPLETE",
-            "date": "2026-01-27",
-            "createdAt": "2026-01-27T09:00:00.000Z"
-          }
-        ]
+        "label": "2026-02-09",
+        "completed": 3,
+        "incomplete": 1,
+        "total": 4,
+        "completionRate": 75.0
       },
       {
-        "date": "2026-01-28",
-        "dateLabel": "明天",
-        "tasks": []
+        "label": "2026-02-10",
+        "completed": 2,
+        "incomplete": 2,
+        "total": 4,
+        "completionRate": 50.0
+      }
+    ],
+    "completedTasks": [
+      {
+        "id": "task-uuid-1",
+        "title": "完成报告",
+        "priority": "P0",
+        "status": "COMPLETED",
+        "date": "2026-02-09",
+        "createdAt": "2026-02-09T09:00:00.000Z",
+        "completedAt": "2026-02-09T15:00:00.000Z"
+      }
+    ],
+    "incompleteTasks": [
+      {
+        "id": "task-uuid-2",
+        "title": "代码评审",
+        "priority": "P1",
+        "status": "INCOMPLETE",
+        "date": "2026-02-10",
+        "createdAt": "2026-02-10T09:00:00.000Z",
+        "completedAt": null
       }
     ]
   }
 }
 ```
 
-**响应示例（逾期）**：
+**响应示例（月维度）**：
 ```json
 {
   "code": 0,
   "message": "success",
   "data": {
-    "statusTab": "OVERDUE",
-    "tasksByDate": [
+    "dimension": "MONTH",
+    "startDate": "2026-02-01",
+    "endDate": "2026-02-28",
+    "totalCompleted": 45,
+    "totalTasks": 80,
+    "totalCompletionRate": 56.25,
+    "chartData": [
       {
-        "date": "2026-01-25",
-        "tasks": [
-          {
-            "id": "task-uuid",
-            "title": "紧急任务",
-            "priority": "P0",
-            "status": "INCOMPLETE",
-            "date": "2026-01-25",
-            "overdueDays": 2
-          }
-        ]
+        "label": "第1周",
+        "completed": 10,
+        "incomplete": 5,
+        "total": 15,
+        "completionRate": 66.67
+      },
+      {
+        "label": "第2周",
+        "completed": 12,
+        "incomplete": 8,
+        "total": 20,
+        "completionRate": 60.0
+      },
+      {
+        "label": "第3周",
+        "completed": 15,
+        "incomplete": 5,
+        "total": 20,
+        "completionRate": 75.0
+      },
+      {
+        "label": "第4周",
+        "completed": 8,
+        "incomplete": 17,
+        "total": 25,
+        "completionRate": 32.0
       }
-    ]
+    ],
+    "completedTasks": [...],
+    "incompleteTasks": [...]
   }
 }
 ```
 
-**排序规则**：
-- **待执行**：按归属日期升序 → 同日按优先级 P0→P3 → 同优先级按创建时间升序
-- **逾期**：按归属日期升序（日期越早越靠前）→ 同日按优先级 P0→P3 → 同优先级按创建时间升序
-- **已完成**：按完成时间降序（最近完成的在前）→ 同日按优先级 P0→P3 → 同优先级按创建时间降序
+**字段说明**：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| dimension | string | 查询维度 WEEK / MONTH |
+| startDate | string | 时间区间起始日期 |
+| endDate | string | 时间区间结束日期 |
+| totalCompleted | int | 区间内已完成任务总数 |
+| totalTasks | int | 区间内任务总数 |
+| totalCompletionRate | double | 区间内总完成率（百分比，保留2位小数） |
+| chartData | array | 图表数据列表 |
+| chartData[].label | string | 时间标签（周维度为日期，月维度为"第N周"） |
+| chartData[].completed | int | 已完成任务数 |
+| chartData[].incomplete | int | 未完成任务数 |
+| chartData[].total | int | 任务总数 |
+| chartData[].completionRate | double | 完成率（百分比，保留2位小数） |
+| completedTasks | array | 已完成任务列表 |
+| incompleteTasks | array | 未完成任务列表 |
+
+**周维度规则**：
+- 以 ISO 标准周（周一 ~ 周日）为周期
+- chartData 返回 7 条记录，每天一条
+- label 为日期字符串（YYYY-MM-DD）
+
+**月维度规则**：
+- 以自然月（1日 ~ 月末）为周期
+- chartData 按周分组：第1周(1-7日)、第2周(8-14日)、第3周(15-21日)、第4周(22-28日)、第5周(29日-月末，如有)
+- label 为"第N周"
+
+**优先级筛选**：
+- 默认查看全部优先级的任务
+- 可传 `priorities=P0` 仅看 P0，或 `priorities=P0,P2` 看 P0 和 P2
+- 筛选同时影响统计数据和任务列表
 
 ---
 
@@ -1378,150 +1160,6 @@
 
 ---
 
-## 7. 会员权益
-
-### 7.1 查询权益状态
-
-**接口描述**：查询用户会员权益状态
-
-**接口路径**：`GET /api/v1/entitlement`
-
-**请求头**：`Authorization: Bearer {access_token}`
-
-**响应示例**：
-```json
-{
-  "code": 0,
-  "message": "success",
-  "data": {
-    "status": "MEMBER_ACTIVE",
-    "trialStartAt": "2026-01-01T00:00:00.000Z",
-    "expireAt": "2027-01-27T00:00:00.000Z",
-    "remainingDays": 365
-  }
-}
-```
-
-| 字段 | 说明 |
-|------|------|
-| status | 权益状态：NOT_ENTITLED（未激活）/FREE_TRIAL（免费期）/MEMBER_ACTIVE（会员有效）/EXPIRED（已到期） |
-| trialStartAt | 免费期起算时间 |
-| expireAt | 会员到期时间 |
-| remainingDays | 剩余天数 |
-
----
-
-### 7.2 创建订单
-
-**接口描述**：创建充值订单
-
-**接口路径**：`POST /api/v1/orders`
-
-**请求头**：
-- `Authorization: Bearer {access_token}`
-- `X-Request-Id: {uuid}`（幂等）
-
-**请求参数**：
-```json
-{
-  "planType": "YEAR",
-  "paymentMethod": "WECHAT_PAY"
-}
-```
-
-| 字段 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| planType | string | 是 | 套餐类型：MONTH（月）/QUARTER（季）/YEAR（年） |
-| paymentMethod | string | 是 | 支付方式：WECHAT_PAY/ALIPAY |
-
-**响应示例**：
-```json
-{
-  "code": 0,
-  "message": "success",
-  "data": {
-    "orderId": "order-uuid",
-    "planType": "YEAR",
-    "amount": 10800,
-    "paymentMethod": "WECHAT_PAY",
-    "paymentParams": {
-      "prepay_id": "wx_prepay_id",
-      "sign": "wx_sign"
-    },
-    "createdAt": "2026-01-27T11:00:00.000Z",
-    "expireAt": "2026-01-27T11:15:00.000Z"
-  }
-}
-```
-
-| 字段 | 说明 |
-|------|------|
-| amount | 金额（分） |
-| paymentParams | 支付参数（由客户端调起支付 SDK） |
-| expireAt | 订单过期时间（15 分钟） |
-
-**幂等要求**：幂等（同一 Request-Id 重复请求返回相同订单）
-
----
-
-### 7.3 查询订单状态
-
-**接口描述**：查询订单支付状态
-
-**接口路径**：`GET /api/v1/orders/{orderId}`
-
-**请求头**：`Authorization: Bearer {access_token}`
-
-**路径参数**：
-- `orderId`：订单 ID
-
-**响应示例**：
-```json
-{
-  "code": 0,
-  "message": "success",
-  "data": {
-    "orderId": "order-uuid",
-    "status": "PAID",
-    "paidAt": "2026-01-27T11:05:00.000Z"
-  }
-}
-```
-
-| 字段 | 说明 |
-|------|------|
-| status | 订单状态：PENDING（待支付）/PAID（已支付）/EXPIRED（已过期）/REFUNDED（已退款） |
-
----
-
-### 7.4 支付回调（服务端内部接口）
-
-**接口描述**：微信/支付宝支付回调接口（由支付平台调用）
-
-**接口路径**：`POST /api/v1/payment/callback/{provider}`
-
-**路径参数**：
-- `provider`：支付渠道，WECHAT/ALIPAY
-
-**请求参数**：由支付平台提供（JSON/XML）
-
-**响应示例**：
-```json
-{
-  "code": "SUCCESS",
-  "message": "OK"
-}
-```
-
-**处理逻辑**：
-1. 验签（验证支付平台签名）
-2. 幂等校验（同一订单号仅生效一次）
-3. 更新订单状态为 PAID
-4. 延长用户会员有效期（若当前为会员，在 `expireAt` 基础上顺延；若已过期，从当前时间起算）
-5. 返回成功响应
-
----
-
 ## 8. 错误码定义
 
 ### 8.1 全局错误码
@@ -1561,94 +1199,6 @@
 | 6001 | 会员 | 订单不存在 |
 | 6002 | 会员 | 订单已过期 |
 | 6003 | 会员 | 支付失败 |
-
----
-
-## 附录
-
-### A. 典型交互时序（文字版）
-
-#### A.1 拉取某天四象限任务列表
-
-1. **客户端**：调用 `GET /api/v1/tasks?date=2026-01-27&showCompleted=true`
-2. **服务端**：
-   - 验证 token 有效性
-   - 查询数据库：筛选 `date=2026-01-27 AND deletedAt IS NULL`
-   - 按象限分组，同象限内按创建时间升序排列
-   - 计算各象限是否有未完成任务（用于小圆点展示）
-   - 返回任务列表
-3. **客户端**：渲染四象限任务列表 + 日历小圆点
-
-#### A.2 新增任务
-
-1. **客户端**：生成 `X-Request-Id: uuid`
-2. **客户端**：调用 `POST /api/v1/tasks` + 请求体
-3. **服务端**：
-   - 验证 token
-   - 幂等校验（检查 Request-Id 是否已处理）
-   - 校验字段：标题长度、日期范围、单日任务数上限
-   - 创建任务记录
-   - 若设置重复，异步生成重复任务副本（最多 365 个）
-   - 返回任务信息
-4. **客户端**：刷新任务列表
-
-#### A.3 完成任务
-
-1. **客户端**：生成 `X-Request-Id: uuid`，防抖 1 秒
-2. **客户端**：调用 `POST /api/v1/tasks/{taskId}/toggle-complete` + `{"completed": true}`
-3. **服务端**：
-   - 验证 token
-   - 幂等校验
-   - 检查父任务是否存在子任务
-     - 若无子任务：直接标记为完成
-     - 若有子任务：检查所有子任务是否已完成，若是则标记父任务为完成，否则返回错误 `3005`
-   - 更新 `status=COMPLETED, completedAt=now()`
-   - 返回最新状态
-4. **客户端**：更新 UI（显示删除线或隐藏）
-
-#### A.4 专注倒计时完成后回写总专注时长
-
-1. **客户端**：倒计时自然结束，调用 `POST /api/v1/focus/{sessionId}/end` + `{"elapsedSeconds": 1500, "endType": "NATURAL"}`
-2. **服务端**：
-   - 验证 token
-   - 幂等校验
-   - 查询会话记录
-   - 计算是否计入：自然结束 100% 计入
-   - 更新用户总专注时长：`totalFocusTime += elapsedSeconds`
-   - 返回计入结果 + 最新总时长
-3. **客户端**：更新总专注时间展示
-
-#### A.5 权益校验/订阅态
-
-1. **客户端**：调用 `GET /api/v1/entitlement`
-2. **服务端**：
-   - 验证 token
-   - 查询用户权益记录
-   - 判断状态：
-     - 未激活：`NOT_ENTITLED`
-     - 免费期：`now < trialStartAt + 1 month` → `FREE_TRIAL`
-     - 会员有效：`now < expireAt` → `MEMBER_ACTIVE`
-     - 已到期：`now >= expireAt` → `EXPIRED`
-   - 返回权益状态 + 到期时间
-3. **客户端**：根据状态显示会员标识或引导充值
-
-#### A.6 多设备登录管理
-
-1. **客户端**：调用 `GET /api/v1/auth/devices`
-2. **服务端**：
-   - 验证 token
-   - 查询用户所有登录设备（基于 token 表）
-   - 标记当前设备（通过 token 匹配）
-   - 返回当前设备 + 其他设备列表
-3. **客户端**：渲染设备列表
-4. **用户操作**：点击"退出登录"按钮（非当前设备）
-5. **客户端**：调用 `POST /api/v1/auth/devices/{deviceId}/logout`
-6. **服务端**：
-   - 验证 token
-   - 检查是否为当前设备（若是则返回错误 `2001`）
-   - 吊销目标设备 token（标记为失效）
-   - 返回成功
-7. **被踢设备**：下次请求时收到 `401`，自动跳转登录页
 
 ---
 

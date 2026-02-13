@@ -9,14 +9,7 @@ class AddTaskSheet extends StatefulWidget {
   final DateTime selectedDate;
   final TaskPriority? defaultPriority;
   final VoidCallback? onCancel;
-  final void Function(
-    String title,
-    TaskPriority priority,
-    RepeatType repeatType,
-    List<int>? weekdays,
-    int? dayOfMonth,
-  )?
-  onSave;
+  final void Function(String title, TaskPriority priority)? onSave;
 
   const AddTaskSheet({
     super.key,
@@ -34,9 +27,6 @@ class _AddTaskSheetState extends State<AddTaskSheet>
     with SingleTickerProviderStateMixin {
   late TextEditingController _titleController;
   late TaskPriority _selectedPriority;
-  RepeatType _repeatType = RepeatType.none;
-  List<int> _selectedWeekdays = [];
-  int? _selectedDayOfMonth;
   bool _isDateAdjusted = false;
 
   // Shake animation for validation error
@@ -155,13 +145,7 @@ class _AddTaskSheetState extends State<AddTaskSheet>
       return;
     }
 
-    widget.onSave?.call(
-      title,
-      _selectedPriority,
-      _repeatType,
-      _repeatType == RepeatType.weekly ? _selectedWeekdays : null,
-      _repeatType == RepeatType.monthly ? _selectedDayOfMonth : null,
-    );
+    widget.onSave?.call(title, _selectedPriority);
   }
 
   /// Trigger shake animation and show error message
@@ -213,9 +197,6 @@ class _AddTaskSheetState extends State<AddTaskSheet>
 
           // Quadrant selector
           _buildQuadrantSection(),
-
-          // Repeat settings
-          _buildRepeatSection(),
 
           // Save button
           _buildSaveButton(),
@@ -440,61 +421,6 @@ class _AddTaskSheetState extends State<AddTaskSheet>
     );
   }
 
-  Widget _buildRepeatSection() {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 20, 16, 0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                tr('repeat'),
-                style: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w500,
-                  color: AppColors.textSecondary,
-                ),
-              ),
-              Switch(
-                value: _repeatType != RepeatType.none,
-                onChanged: (value) {
-                  setState(() {
-                    _repeatType = value ? RepeatType.daily : RepeatType.none;
-                  });
-                },
-                activeTrackColor: AppColors.priorityP1, // Pink when ON
-                inactiveTrackColor: AppColors.priorityP1.withValues(
-                  alpha: 0.3,
-                ), // Light pink when OFF
-                inactiveThumbColor: Colors.white,
-                trackOutlineColor: WidgetStateProperty.resolveWith((states) {
-                  if (states.contains(WidgetState.selected)) {
-                    return Colors.transparent;
-                  }
-                  return AppColors.priorityP1; // Pink border when OFF
-                }),
-              ),
-            ],
-          ),
-          if (_repeatType != RepeatType.none) ...[
-            const SizedBox(height: 8),
-            _buildRepeatTypeSelector(),
-            if (_repeatType == RepeatType.weekly) ...[
-              const SizedBox(height: 12),
-              _buildWeekdaySelector(),
-            ],
-            if (_repeatType == RepeatType.monthly) ...[
-              const SizedBox(height: 12),
-              _buildDayOfMonthSelector(),
-            ],
-          ],
-        ],
-      ),
-    );
-  }
-
   Widget _buildSaveButton() {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 24, 16, 0),
@@ -597,149 +523,6 @@ class _AddTaskSheetState extends State<AddTaskSheet>
     );
   }
 
-  Widget _buildRepeatTypeSelector() {
-    final repeatTypes = [
-      RepeatType.daily,
-      RepeatType.weekly,
-      RepeatType.monthly,
-    ];
-
-    return Row(
-      children: repeatTypes.map((type) {
-        final isSelected = _repeatType == type;
-        return Expanded(
-          child: GestureDetector(
-            onTap: () {
-              setState(() {
-                _repeatType = type;
-                if (type == RepeatType.weekly && _selectedWeekdays.isEmpty) {
-                  _selectedWeekdays = [DateTime.now().weekday];
-                }
-                if (type == RepeatType.monthly && _selectedDayOfMonth == null) {
-                  _selectedDayOfMonth = DateTime.now().day;
-                }
-              });
-            },
-            child: Container(
-              margin: EdgeInsets.only(
-                right: type != RepeatType.monthly ? 8 : 0,
-              ),
-              padding: const EdgeInsets.symmetric(vertical: 10),
-              decoration: BoxDecoration(
-                color: isSelected ? AppColors.primary : AppColors.surfaceLight,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Center(
-                child: Text(
-                  tr('repeat_${type.name}'),
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w500,
-                    color: isSelected
-                        ? AppColors.textOnPrimary
-                        : AppColors.textSecondary,
-                  ),
-                ),
-              ),
-            ),
-          ),
-        );
-      }).toList(),
-    );
-  }
-
-  Widget _buildWeekdaySelector() {
-    final weekdayKeys = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
-
-    return Wrap(
-      spacing: 6,
-      children: List.generate(7, (index) {
-        final dayNum = index + 1;
-        final isSelected = _selectedWeekdays.contains(dayNum);
-        return GestureDetector(
-          onTap: () {
-            setState(() {
-              if (isSelected) {
-                _selectedWeekdays.remove(dayNum);
-              } else {
-                _selectedWeekdays.add(dayNum);
-              }
-            });
-          },
-          child: Container(
-            width: 42,
-            height: 36,
-            decoration: BoxDecoration(
-              color: isSelected ? AppColors.primary : AppColors.surfaceLight,
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Center(
-              child: Text(
-                tr(weekdayKeys[index]),
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w500,
-                  color: isSelected
-                      ? AppColors.textOnPrimary
-                      : AppColors.textSecondary,
-                ),
-              ),
-            ),
-          ),
-        );
-      }),
-    );
-  }
-
-  Widget _buildDayOfMonthSelector() {
-    return GestureDetector(
-      onTap: _showDayOfMonthPicker,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        decoration: BoxDecoration(
-          color: AppColors.surfaceLight,
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Row(
-          children: [
-            const Icon(
-              Icons.calendar_month_outlined,
-              size: 20,
-              color: AppColors.textSecondary,
-            ),
-            const SizedBox(width: 12),
-            Text(
-              tr('every_nth_of_month').replaceAll('%s', '${_selectedDayOfMonth ?? 1}'),
-              style: const TextStyle(
-                fontSize: 14,
-                color: AppColors.textPrimary,
-              ),
-            ),
-            const Spacer(),
-            const Icon(
-              Icons.chevron_right,
-              size: 20,
-              color: AppColors.textSecondary,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _showDayOfMonthPicker() {
-    showDialog(
-      context: context,
-      builder: (context) => _DayOfMonthPickerDialog(
-        selectedDay: _selectedDayOfMonth ?? 1,
-        onDaySelected: (day) {
-          setState(() {
-            _selectedDayOfMonth = day;
-          });
-        },
-      ),
-    );
-  }
 }
 
 /// Show add task sheet
@@ -747,14 +530,7 @@ Future<void> showAddTaskSheet(
   BuildContext context, {
   required DateTime selectedDate,
   TaskPriority? defaultPriority,
-  void Function(
-    String title,
-    TaskPriority priority,
-    RepeatType repeatType,
-    List<int>? weekdays,
-    int? dayOfMonth,
-  )?
-  onSave,
+  void Function(String title, TaskPriority priority)? onSave,
 }) {
   return showModalBottomSheet(
     context: context,
@@ -767,8 +543,8 @@ Future<void> showAddTaskSheet(
       child: AddTaskSheet(
         selectedDate: selectedDate,
         defaultPriority: defaultPriority,
-        onSave: (title, priority, repeatType, weekdays, dayOfMonth) {
-          onSave?.call(title, priority, repeatType, weekdays, dayOfMonth);
+        onSave: (title, priority) {
+          onSave?.call(title, priority);
           Navigator.of(context).pop();
         },
       ),
@@ -776,113 +552,3 @@ Future<void> showAddTaskSheet(
   );
 }
 
-/// Day of month picker dialog - calendar grid style
-class _DayOfMonthPickerDialog extends StatelessWidget {
-  final int selectedDay;
-  final ValueChanged<int> onDaySelected;
-
-  const _DayOfMonthPickerDialog({
-    required this.selectedDay,
-    required this.onDaySelected,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Dialog(
-      backgroundColor: Colors.transparent,
-      child: Container(
-        padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(
-          color: AppColors.cardBackground,
-          borderRadius: BorderRadius.circular(20),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Header
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  tr('select_day'),
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.textPrimary,
-                  ),
-                ),
-                GestureDetector(
-                  onTap: () => Navigator.of(context).pop(),
-                  child: Container(
-                    width: 28,
-                    height: 28,
-                    decoration: BoxDecoration(
-                      color: AppColors.surfaceLight,
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
-                      Icons.close,
-                      size: 16,
-                      color: AppColors.textSecondary,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            // Calendar grid (7 columns x 5 rows = 35 cells, showing 1-31)
-            GridView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 7,
-                mainAxisSpacing: 8,
-                crossAxisSpacing: 8,
-                childAspectRatio: 1,
-              ),
-              itemCount: 31,
-              itemBuilder: (context, index) {
-                final day = index + 1;
-                final isSelected = day == selectedDay;
-                return GestureDetector(
-                  onTap: () {
-                    onDaySelected(day);
-                    Navigator.of(context).pop();
-                  },
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: isSelected
-                          ? AppColors.priorityP0
-                          : AppColors.surfaceLight,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Center(
-                      child: Text(
-                        '$day',
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: isSelected
-                              ? FontWeight.w600
-                              : FontWeight.w500,
-                          color: isSelected
-                              ? Colors.white
-                              : AppColors.textPrimary,
-                        ),
-                      ),
-                    ),
-                  ),
-                );
-              },
-            ),
-            const SizedBox(height: 16),
-            // Selected day hint
-            Text(
-              tr('repeat_on_nth').replaceAll('%s', '$selectedDay'),
-              style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}

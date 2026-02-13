@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../config/api_config.dart';
 import 'api_client.dart';
@@ -13,17 +15,13 @@ class UserInfo {
   final String avatar;
   final String? ipLocation;
 
-  UserInfo({
-    required this.nickname,
-    required this.avatar,
-    this.ipLocation,
-  });
+  UserInfo({required this.nickname, required this.avatar, this.ipLocation});
 
   factory UserInfo.fromJson(Map<String, dynamic> json) => UserInfo(
-        nickname: json['nickname'] as String,
-        avatar: json['avatar'] as String,
-        ipLocation: json['ipLocation'] as String?,
-      );
+    nickname: json['nickname'] as String,
+    avatar: json['avatar'] as String,
+    ipLocation: json['ipLocation'] as String?,
+  );
 }
 
 /// 权益信息模型
@@ -32,17 +30,13 @@ class Entitlement {
   final String? trialStartAt;
   final String? expireAt;
 
-  Entitlement({
-    required this.status,
-    this.trialStartAt,
-    this.expireAt,
-  });
+  Entitlement({required this.status, this.trialStartAt, this.expireAt});
 
   factory Entitlement.fromJson(Map<String, dynamic> json) => Entitlement(
-        status: json['status'] as String,
-        trialStartAt: json['trialStartAt'] as String?,
-        expireAt: json['expireAt'] as String?,
-      );
+    status: json['status'] as String,
+    trialStartAt: json['trialStartAt'] as String?,
+    expireAt: json['expireAt'] as String?,
+  );
 }
 
 /// 登录/注册响应数据模型
@@ -64,14 +58,15 @@ class AuthData {
   });
 
   factory AuthData.fromJson(Map<String, dynamic> json) => AuthData(
-        userId: json['userId'] as String,
-        accessToken: json['accessToken'] as String,
-        refreshToken: json['refreshToken'] as String,
-        expiresIn: json['expiresIn'] as int,
-        userInfo: UserInfo.fromJson(json['userInfo'] as Map<String, dynamic>),
-        entitlement:
-            Entitlement.fromJson(json['entitlement'] as Map<String, dynamic>),
-      );
+    userId: json['userId'] as String,
+    accessToken: json['accessToken'] as String,
+    refreshToken: json['refreshToken'] as String,
+    expiresIn: json['expiresIn'] as int,
+    userInfo: UserInfo.fromJson(json['userInfo'] as Map<String, dynamic>),
+    entitlement: Entitlement.fromJson(
+      json['entitlement'] as Map<String, dynamic>,
+    ),
+  );
 }
 
 /// 设备信息模型
@@ -96,14 +91,17 @@ class DeviceInfo {
   /// - true: 强制为当前设备（用于 currentDevice）
   /// - false: 强制为非当前设备（用于 otherDevices）
   /// - null: 使用 API 返回的值
-  factory DeviceInfo.fromJson(Map<String, dynamic> json, {bool? forceIsCurrent}) => DeviceInfo(
-        deviceId: json['deviceId'] as String,
-        deviceName: json['deviceName'] as String,
-        platform: json['platform'] as String,
-        lastLoginIp: json['lastLoginIp'] as String?,
-        lastLoginAt: json['lastLoginAt'] as String?,
-        isCurrent: forceIsCurrent ?? (json['isCurrent'] as bool? ?? false),
-      );
+  factory DeviceInfo.fromJson(
+    Map<String, dynamic> json, {
+    bool? forceIsCurrent,
+  }) => DeviceInfo(
+    deviceId: json['deviceId'] as String,
+    deviceName: json['deviceName'] as String,
+    platform: json['platform'] as String,
+    lastLoginIp: json['lastLoginIp'] as String?,
+    lastLoginAt: json['lastLoginAt'] as String?,
+    isCurrent: forceIsCurrent ?? (json['isCurrent'] as bool? ?? false),
+  );
 }
 
 /// 设备列表查询结果
@@ -123,17 +121,14 @@ class DeviceListResult {
   factory DeviceListResult.success({
     DeviceInfo? currentDevice,
     List<DeviceInfo> otherDevices = const [],
-  }) =>
-      DeviceListResult._(
-        isSuccess: true,
-        currentDevice: currentDevice,
-        otherDevices: otherDevices,
-      );
+  }) => DeviceListResult._(
+    isSuccess: true,
+    currentDevice: currentDevice,
+    otherDevices: otherDevices,
+  );
 
-  factory DeviceListResult.failure(String message) => DeviceListResult._(
-        isSuccess: false,
-        errorMessage: message,
-      );
+  factory DeviceListResult.failure(String message) =>
+      DeviceListResult._(isSuccess: false, errorMessage: message);
 }
 
 /// 用户信息查询结果
@@ -168,22 +163,19 @@ class UserProfileResult {
     String? lastCheckInDate,
     int? nicknameModifyCount,
     String? nicknameNextModifyAt,
-  }) =>
-      UserProfileResult._(
-        isSuccess: true,
-        nickname: nickname,
-        avatar: avatar,
-        ipLocation: ipLocation,
-        consecutiveDays: consecutiveDays,
-        lastCheckInDate: lastCheckInDate,
-        nicknameModifyCount: nicknameModifyCount,
-        nicknameNextModifyAt: nicknameNextModifyAt,
-      );
+  }) => UserProfileResult._(
+    isSuccess: true,
+    nickname: nickname,
+    avatar: avatar,
+    ipLocation: ipLocation,
+    consecutiveDays: consecutiveDays,
+    lastCheckInDate: lastCheckInDate,
+    nicknameModifyCount: nicknameModifyCount,
+    nicknameNextModifyAt: nicknameNextModifyAt,
+  );
 
-  factory UserProfileResult.failure(String message) => UserProfileResult._(
-        isSuccess: false,
-        errorMessage: message,
-      );
+  factory UserProfileResult.failure(String message) =>
+      UserProfileResult._(isSuccess: false, errorMessage: message);
 }
 
 /// 认证服务
@@ -193,12 +185,26 @@ class AuthService {
 
   SharedPreferences? _prefs;
   AuthData? _currentAuthData;
-  
+
   /// 会话轮询定时器
   Timer? _sessionPollingTimer;
-  
+
+  /// 用户信息缓存
+  UserProfileResult? _cachedProfile;
+  DateTime? _profileCachedAt;
+  static const _profileCacheDuration = Duration(minutes: 30);
+
+  /// 会话失效回调（用于跳转登录页）
+  void Function()? _onSessionInvalid;
+
   /// 是否正在轮询
-  bool get isPolling => _sessionPollingTimer != null && _sessionPollingTimer!.isActive;
+  bool get isPolling =>
+      _sessionPollingTimer != null && _sessionPollingTimer!.isActive;
+
+  /// 设置会话失效回调
+  void setOnSessionInvalid(void Function() callback) {
+    _onSessionInvalid = callback;
+  }
 
   Future<void> initialize() async {
     _prefs = await SharedPreferences.getInstance();
@@ -211,21 +217,23 @@ class AuthService {
         refreshToken: refreshToken,
       );
     }
-    
+
     // 设置 Token 刷新成功回调，用于更新本地存储
     ApiClient.instance.setOnTokenRefreshed(_onTokenRefreshed);
   }
-  
+
   /// Token 刷新成功回调
   /// 当 ApiClient 自动刷新 Token 后，更新本地存储
-  Future<void> _onTokenRefreshed(String accessToken, String refreshToken) async {
+  Future<void> _onTokenRefreshed(
+    String accessToken,
+    String refreshToken,
+  ) async {
     await _prefs?.setString(ApiConfig.accessTokenKey, accessToken);
     await _prefs?.setString(ApiConfig.refreshTokenKey, refreshToken);
   }
 
   /// 检查是否已登录
-  bool get isLoggedIn =>
-      _prefs?.getString(ApiConfig.accessTokenKey) != null;
+  bool get isLoggedIn => _prefs?.getString(ApiConfig.accessTokenKey) != null;
 
   /// 获取当前用户 ID
   String? get currentUserId => _prefs?.getString(ApiConfig.userIdKey);
@@ -271,7 +279,7 @@ class AuthService {
   void startSessionPolling() {
     // 先停止已有的轮询
     stopSessionPolling();
-    
+
     // 每10秒轮询一次
     _sessionPollingTimer = Timer.periodic(
       const Duration(seconds: 10),
@@ -286,7 +294,9 @@ class AuthService {
   }
 
   /// 检查会话状态
-  /// GET /api/v1/auth/session/check
+  /// GET /api/v1/user/session/check
+  /// 此接口仅用于检查会话状态，不会刷新 Token
+  /// 请求体：{ "refreshToken": "xxx" }，无需 Authorization 头
   Future<void> _checkSession() async {
     // 如果没有 token，停止轮询
     if (!isLoggedIn) {
@@ -294,21 +304,56 @@ class AuthService {
       return;
     }
 
-    final response = await ApiClient.instance.get<Map<String, dynamic>>(
-      '/auth/session/check',
-      requireAuth: true,
-      fromJsonT: (data) => data as Map<String, dynamic>,
-    );
-
-    // 401 会在 ApiClient 中自动处理跳转登录页
-    // 这里只需要在响应失败时停止轮询
-    if (response.code == 401) {
+    final refreshToken = _prefs?.getString(ApiConfig.refreshTokenKey);
+    if (refreshToken == null) {
       stopSessionPolling();
+      return;
+    }
+
+    try {
+      // 此接口使用 GET + body 传 refreshToken，不走 ApiClient 通用流程
+      final url = Uri.parse('${ApiConfig.apiPrefix}/user/session/check');
+      final request = http.Request('GET', url);
+      request.headers['Content-Type'] = 'application/json';
+      request.headers['Accept'] = 'application/json';
+      request.body = jsonEncode({'refreshToken': refreshToken});
+
+      final streamedResponse = await request.send().timeout(
+        Duration(seconds: ApiConfig.timeoutSeconds),
+      );
+      final response = await http.Response.fromStream(streamedResponse);
+
+      if (response.body.isEmpty) return;
+
+      final jsonBody = jsonDecode(response.body) as Map<String, dynamic>;
+      final code = jsonBody['code'] as int;
+
+      if (code == 0 && jsonBody['data'] != null) {
+        // 会话有效，检查 valid 字段（防御性编程）
+        final data = jsonBody['data'] as Map<String, dynamic>;
+        final valid = data['valid'] as bool? ?? false;
+        if (!valid) {
+          _handleSessionInvalid();
+        }
+      } else if (code == 401) {
+        // 会话无效（被踢出/退出/过期）
+        // 清除本地 Token 并跳转登录页
+        _handleSessionInvalid();
+      }
+    } catch (e) {
+      // 网络异常等情况下，忽略错误继续轮询
+      // 避免因临时网络问题导致误判会话状态
     }
   }
 
+  /// 处理会话失效：清除本地 Token 并通知跳转登录页
+  void _handleSessionInvalid() {
+    clearLocalAuth();
+    _onSessionInvalid?.call();
+  }
+
   /// 用户注册
-  /// POST /api/v1/auth/register
+  /// POST /api/v1/user/register
   Future<AuthResult> register({
     required String email,
     required String password,
@@ -325,19 +370,13 @@ class AuthService {
       return AuthResult.failure(tr('password_required'), errorCode: -1);
     }
     if (password.length < 6) {
-      return AuthResult.failure(
-        tr('password_min_length'),
-        errorCode: 1005,
-      );
+      return AuthResult.failure(tr('password_min_length'), errorCode: 1005);
     }
     if (nickname.isEmpty) {
       return AuthResult.failure(tr('nickname_required'), errorCode: -1);
     }
     if (nickname.length > 20) {
-      return AuthResult.failure(
-        tr('nickname_too_long'),
-        errorCode: -1,
-      );
+      return AuthResult.failure(tr('nickname_too_long'), errorCode: -1);
     }
 
     // 获取设备信息
@@ -345,7 +384,7 @@ class AuthService {
 
     // 调用注册 API
     final response = await ApiClient.instance.post<Map<String, dynamic>>(
-      '/auth/register',
+      '/user/register',
       body: {
         'email': email,
         'password': password,
@@ -375,7 +414,7 @@ class AuthService {
   }
 
   /// 用户登录
-  /// POST /api/v1/auth/login
+  /// POST /api/v1/user/login
   Future<AuthResult> login(String email, String password) async {
     // 前端校验
     if (email.isEmpty) {
@@ -393,7 +432,7 @@ class AuthService {
 
     // 调用登录 API
     final response = await ApiClient.instance.post<Map<String, dynamic>>(
-      '/auth/login',
+      '/user/login',
       body: {
         'email': email,
         'password': password,
@@ -415,19 +454,16 @@ class AuthService {
   }
 
   /// 退出登录
-  /// POST /api/v1/auth/logout
+  /// POST /api/v1/user/logout
   Future<void> logout() async {
     // 调用登出 API
-    await ApiClient.instance.post(
-      '/auth/logout',
-      requireAuth: true,
-    );
+    await ApiClient.instance.post('/user/logout', requireAuth: true);
     // 清除本地数据
     await _clearAuthData();
   }
 
   /// 修改密码
-  /// POST /api/v1/auth/password
+  /// POST /api/v1/user/password
   Future<AuthResult> changePassword({
     required String oldPassword,
     required String newPassword,
@@ -445,11 +481,8 @@ class AuthService {
 
     // 调用修改密码 API
     final response = await ApiClient.instance.post<Map<String, dynamic>>(
-      '/auth/password',
-      body: {
-        'oldPassword': oldPassword,
-        'newPassword': newPassword,
-      },
+      '/user/password',
+      body: {'oldPassword': oldPassword, 'newPassword': newPassword},
       requireAuth: true,
       fromJsonT: (data) => data as Map<String, dynamic>,
     );
@@ -461,15 +494,12 @@ class AuthService {
       final errorMessage = response.code == 1001
           ? tr('error_old_password_wrong')
           : _getErrorMessage(response.code, response.message);
-      return AuthResult.failure(
-        errorMessage,
-        errorCode: response.code,
-      );
+      return AuthResult.failure(errorMessage, errorCode: response.code);
     }
   }
 
   /// 找回密码
-  /// POST /api/v1/auth/forgot-password
+  /// POST /api/v1/user/forgot-password
   Future<AuthResult> forgotPassword(String email) async {
     // 前端校验
     if (email.isEmpty) {
@@ -481,7 +511,7 @@ class AuthService {
 
     // 调用找回密码 API
     final response = await ApiClient.instance.post<Map<String, dynamic>>(
-      '/auth/forgot-password',
+      '/user/forgot-password',
       body: {'email': email},
       fromJsonT: (data) => data as Map<String, dynamic>,
     );
@@ -497,26 +527,33 @@ class AuthService {
   }
 
   /// 获取设备列表
-  /// GET /api/v1/auth/devices
+  /// GET /api/v1/user/devices
   Future<DeviceListResult> getDevices() async {
     final response = await ApiClient.instance.get<Map<String, dynamic>>(
-      '/auth/devices',
+      '/user/devices',
       requireAuth: true,
       fromJsonT: (data) => data as Map<String, dynamic>,
     );
 
     if (response.isSuccess && response.data != null) {
       try {
-        final currentDeviceJson = response.data!['currentDevice'] as Map<String, dynamic>?;
-        final otherDevicesJson = response.data!['otherDevices'] as List<dynamic>? ?? [];
+        final currentDeviceJson =
+            response.data!['currentDevice'] as Map<String, dynamic>?;
+        final otherDevicesJson =
+            response.data!['otherDevices'] as List<dynamic>? ?? [];
 
         // 解析当前设备，强制 isCurrent = true
-        final currentDevice = currentDeviceJson != null 
-            ? DeviceInfo.fromJson(currentDeviceJson, forceIsCurrent: true) 
+        final currentDevice = currentDeviceJson != null
+            ? DeviceInfo.fromJson(currentDeviceJson, forceIsCurrent: true)
             : null;
         // 解析其他设备，强制 isCurrent = false
         final otherDevices = otherDevicesJson
-            .map((e) => DeviceInfo.fromJson(e as Map<String, dynamic>, forceIsCurrent: false))
+            .map(
+              (e) => DeviceInfo.fromJson(
+                e as Map<String, dynamic>,
+                forceIsCurrent: false,
+              ),
+            )
             .toList();
 
         return DeviceListResult.success(
@@ -534,10 +571,10 @@ class AuthService {
   }
 
   /// 踢出指定设备
-  /// POST /api/v1/auth/devices/{deviceId}/logout
+  /// POST /api/v1/user/devices/{deviceId}/logout
   Future<AuthResult> logoutDevice(String deviceId) async {
     final response = await ApiClient.instance.post<void>(
-      '/auth/devices/$deviceId/logout',
+      '/user/devices/$deviceId/logout',
       requireAuth: true,
     );
 
@@ -553,10 +590,7 @@ class AuthService {
 
   /// 更新用户信息（昵称/头像）
   /// PUT /api/v1/user/profile
-  Future<AuthResult> updateProfile({
-    String? nickname,
-    String? avatar,
-  }) async {
+  Future<AuthResult> updateProfile({String? nickname, String? avatar}) async {
     // 至少需要一个字段
     if (nickname == null && avatar == null) {
       return AuthResult.failure(tr('error_bad_request'), errorCode: 400);
@@ -582,6 +616,8 @@ class AuthService {
     );
 
     if (response.isSuccess) {
+      // 更新成功后清除用户信息缓存，下次访问 Me 页面会重新拉取
+      clearProfileCache();
       return AuthResult.success();
     } else {
       return AuthResult.failure(
@@ -589,6 +625,30 @@ class AuthService {
         errorCode: response.code,
       );
     }
+  }
+
+  /// 查询用户信息（带 30 分钟缓存）
+  /// 如果缓存有效则直接返回，否则重新请求
+  Future<UserProfileResult> getCachedUserProfile({bool forceRefresh = false}) async {
+    if (!forceRefresh &&
+        _cachedProfile != null &&
+        _cachedProfile!.isSuccess &&
+        _profileCachedAt != null &&
+        DateTime.now().difference(_profileCachedAt!) < _profileCacheDuration) {
+      return _cachedProfile!;
+    }
+    final result = await getUserProfile();
+    if (result.isSuccess) {
+      _cachedProfile = result;
+      _profileCachedAt = DateTime.now();
+    }
+    return result;
+  }
+
+  /// 清除用户信息缓存（更新资料后调用）
+  void clearProfileCache() {
+    _cachedProfile = null;
+    _profileCachedAt = null;
   }
 
   /// 查询用户信息
@@ -638,7 +698,7 @@ class AuthService {
   }
 
   /// 刷新 Token
-  /// POST /api/v1/auth/refresh
+  /// POST /api/v1/user/refresh
   Future<bool> refreshToken() async {
     final refreshToken = _prefs?.getString(ApiConfig.refreshTokenKey);
     if (refreshToken == null) {
@@ -646,7 +706,7 @@ class AuthService {
     }
 
     final response = await ApiClient.instance.post<Map<String, dynamic>>(
-      '/auth/refresh',
+      '/user/refreshAccessToken',
       body: {'refreshToken': refreshToken},
       fromJsonT: (data) => data as Map<String, dynamic>,
     );
@@ -754,14 +814,12 @@ class AuthResult {
     this.authData,
   });
 
-  factory AuthResult.success({AuthData? authData}) => AuthResult._(
-        isSuccess: true,
-        authData: authData,
-      );
+  factory AuthResult.success({AuthData? authData}) =>
+      AuthResult._(isSuccess: true, authData: authData);
 
   factory AuthResult.failure(String message, {int? errorCode}) => AuthResult._(
-        isSuccess: false,
-        errorMessage: message,
-        errorCode: errorCode,
-      );
+    isSuccess: false,
+    errorMessage: message,
+    errorCode: errorCode,
+  );
 }

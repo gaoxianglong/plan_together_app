@@ -17,6 +17,25 @@ enum TaskPriority {
       orElse: () => TaskPriority.p1,
     );
   }
+
+  /// 从 API 字符串解析 (P0/P1/P2/P3)
+  static TaskPriority fromString(String value) {
+    switch (value.toUpperCase()) {
+      case 'P0':
+        return TaskPriority.p0;
+      case 'P1':
+        return TaskPriority.p1;
+      case 'P2':
+        return TaskPriority.p2;
+      case 'P3':
+        return TaskPriority.p3;
+      default:
+        return TaskPriority.p1;
+    }
+  }
+
+  /// 转为 API 接口使用的字符串 (P0/P1/P2/P3)
+  String get apiValue => name.toUpperCase();
 }
 
 /// Task Status Enum
@@ -27,6 +46,17 @@ enum TaskStatus {
   final String label;
 
   const TaskStatus(this.label);
+
+  /// 从 API 字符串解析 (INCOMPLETE/COMPLETED)
+  static TaskStatus fromString(String value) {
+    switch (value.toUpperCase()) {
+      case 'COMPLETED':
+        return TaskStatus.completed;
+      case 'INCOMPLETE':
+      default:
+        return TaskStatus.incomplete;
+    }
+  }
 }
 
 /// 重复类型枚举
@@ -127,6 +157,24 @@ class Task {
     this.completedAt,
     this.deletedAt,
   });
+
+  /// 从 API JSON 创建 Task
+  factory Task.fromJson(Map<String, dynamic> json) {
+    return Task(
+      id: json['id'] as String,
+      userId: '',
+      title: json['title'] as String,
+      priority: TaskPriority.fromString(json['priority'] as String),
+      date: DateTime.parse(json['date'] as String),
+      status: TaskStatus.fromString(json['status'] as String? ?? 'INCOMPLETE'),
+      createdAt: json['createdAt'] != null
+          ? DateTime.parse(json['createdAt'] as String)
+          : DateTime.now(),
+      completedAt: json['completedAt'] != null
+          ? DateTime.parse(json['completedAt'] as String)
+          : null,
+    );
+  }
 
   bool get isCompleted => status == TaskStatus.completed;
   bool get hasSubTasks => subTasks.isNotEmpty;
