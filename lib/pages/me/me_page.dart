@@ -1123,7 +1123,7 @@ class _MePageState extends State<MePage> {
       text: TextSpan(
         style: const TextStyle(fontSize: 14, color: AppColors.textSecondary),
         children: [
-          TextSpan(text: '${tr('planning_streak')} '),
+          TextSpan(text: tr('planning_streak_prefix')),
           TextSpan(
             text: '$_consecutiveDays',
             style: const TextStyle(
@@ -1132,7 +1132,7 @@ class _MePageState extends State<MePage> {
               color: AppColors.priorityP0, // P0 Rose Red
             ),
           ),
-          TextSpan(text: ' ${tr('days')}'),
+          TextSpan(text: tr('planning_streak_suffix')),
         ],
       ),
     );
