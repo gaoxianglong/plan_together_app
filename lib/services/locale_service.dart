@@ -150,8 +150,8 @@ class LocaleService {
     'join_us': 'Join us to start your planning journey',
 
     // Plan Page
-    'planning_streak_prefix': 'Day',
-    'planning_streak_suffix': 'of planning',
+    'planning_streak_prefix': 'Continuously planning for ',
+    'planning_streak_suffix': ' days',
     'back_to_today': 'Back to Today',
     'add_task': 'Add Task',
     'new_task': 'New Task',
@@ -512,7 +512,7 @@ class LocaleService {
     'join_us': '加入我们，开始您的计划之旅',
 
     // Plan Page
-    'planning_streak_prefix': '已坚持做计划',
+    'planning_streak_prefix': '已连续坚持做计划',
     'planning_streak_suffix': '天',
     'back_to_today': '回到今天',
     'add_task': '添加任务',
@@ -866,8 +866,8 @@ class LocaleService {
     'join_us': '一緒にプランニングを始めましょう',
 
     // Plan Page
-    'planning_streak_prefix': 'プラン継続',
-    'planning_streak_suffix': '日目',
+    'planning_streak_prefix': '計画を継続して',
+    'planning_streak_suffix': '日',
     'back_to_today': '今日に戻る',
     'add_task': 'タスク追加',
     'new_task': '新しいタスク',
