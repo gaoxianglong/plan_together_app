@@ -494,7 +494,7 @@
 
 ### 3.1 查询任务列表（按日期）
 
-**接口描述**：查询指定日期的四象限任务列表（自动展开重复任务）
+**接口描述**：查询指定日期或多个日期的四象限任务列表（自动展开重复任务）
 
 **接口路径**：`GET /api/v1/tasks`
 
@@ -503,10 +503,22 @@
 **请求参数**：
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| date | string | 是 | 日期，格式 YYYY-MM-DD |
+| date | string | 否* | 单个日期，格式 YYYY-MM-DD。与 dates 二选一 |
+| dates | string | 否* | 多个日期，逗号分隔，如 `2026-02-10,2026-02-11,2026-02-12`。与 date 二选一 |
 | showCompleted | boolean | 否 | 是否显示已完成任务（默认 true） |
 
-**响应示例**：
+*注：`date` 与 `dates` 必填其一。传 `dates` 时支持多日期查询；传 `date` 时保持单日期兼容。
+
+**请求示例**：
+```
+# 单日期（兼容旧版）
+GET /api/v1/tasks?date=2026-02-10&showCompleted=true
+
+# 多日期
+GET /api/v1/tasks?dates=2026-02-10,2026-02-11,2026-02-12&showCompleted=true
+```
+
+**响应示例（单日期）**：
 ```json
 {
   "code": 0,
@@ -531,17 +543,7 @@
           "completedAt": null
         }
       ],
-      "P1": [
-        {
-          "id": "abc-def-123_2026-02-10",
-          "title": "早起跑步",
-          "priority": "P1",
-          "status": "INCOMPLETE",
-          "date": "2026-02-10",
-          "createdAt": "2026-02-08T09:00:00.000Z",
-          "completedAt": null
-        }
-      ],
+      "P1": [],
       "P2": [],
       "P3": []
     }
@@ -549,7 +551,49 @@
 }
 ```
 
+**响应示例（多日期）**：
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "dataByDate": {
+      "2026-02-10": {
+        "hasUncheckedTasks": {
+          "P0": true,
+          "P1": true,
+          "P2": false,
+          "P3": false
+        },
+        "tasks": {
+          "P0": [
+            {
+              "id": "task-uuid-1",
+              "title": "完成产品需求评审",
+              "priority": "P0",
+              "status": "INCOMPLETE",
+              "date": "2026-02-10",
+              "createdAt": "2026-02-10T09:00:00.000Z",
+              "completedAt": null
+            }
+          ],
+          "P1": [],
+          "P2": [],
+          "P3": []
+        }
+      },
+      "2026-02-11": {
+        "hasUncheckedTasks": { "P0": false, "P1": false, "P2": false, "P3": false },
+        "tasks": { "P0": [], "P1": [], "P2": [], "P3": [] }
+      }
+    }
+  }
+}
+```
+
 **说明**：
+- 单日期：返回 `date`、`hasUncheckedTasks`、`tasks`，与旧版兼容
+- 多日期：返回 `dataByDate`，key 为日期字符串，value 为当日 `hasUncheckedTasks` 与 `tasks`
 - `hasUncheckedTasks`：各象限是否有未完成任务（用于日历小圆点展示）
 - `tasks`：按象限分组的任务列表，同象限内按创建时间升序排列
 

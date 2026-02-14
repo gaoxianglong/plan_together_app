@@ -172,7 +172,7 @@ class PlanPageState extends State<PlanPage> {
     _fetchTasks();
   }
 
-  /// 从 API 获取当前日及相邻日期的任务列表（用于滑动预览）
+  /// 从 API 批量获取当前日及相邻日期的任务列表（用于滑动预览）
   Future<void> _fetchTasks() async {
     setState(() {
       _isLoading = true;
@@ -180,26 +180,33 @@ class PlanPageState extends State<PlanPage> {
 
     final prevDate = _selectedDate.subtract(const Duration(days: 1));
     final nextDate = _selectedDate.add(const Duration(days: 1));
+    final dates = [prevDate, _selectedDate, nextDate];
 
-    final results = await Future.wait([
-      TaskService.instance.fetchTasksByDate(_selectedDate, showCompleted: _showCompleted),
-      TaskService.instance.fetchTasksByDate(prevDate, showCompleted: _showCompleted),
-      TaskService.instance.fetchTasksByDate(nextDate, showCompleted: _showCompleted),
-    ]);
+    final result = await TaskService.instance.fetchTasksByDates(
+      dates,
+      showCompleted: _showCompleted,
+    );
 
     if (mounted) {
+      final prevStr = _dateToYmd(prevDate);
+      final currStr = _dateToYmd(_selectedDate);
+      final nextStr = _dateToYmd(nextDate);
+
       setState(() {
         _isLoading = false;
-        if (results[0].isSuccess) _tasks = results[0].tasks;
-        if (results[1].isSuccess) _prevDayTasks = results[1].tasks;
-        if (results[2].isSuccess) _nextDayTasks = results[2].tasks;
+        _prevDayTasks = result.dataByDate[prevStr]?.tasks ?? [];
+        _tasks = result.dataByDate[currStr]?.tasks ?? [];
+        _nextDayTasks = result.dataByDate[nextStr]?.tasks ?? [];
       });
 
-      if (!results[0].isSuccess) {
-        _showError(results[0].errorMessage ?? tr('error_server'));
+      if (!result.isSuccess) {
+        _showError(result.errorMessage ?? tr('error_server'));
       }
     }
   }
+
+  String _dateToYmd(DateTime d) =>
+      '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
 
   /// 查询连续打卡天数
   Future<void> _fetchCheckInStreak() async {

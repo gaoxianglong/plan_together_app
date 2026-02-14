@@ -29,6 +29,25 @@ class TaskListResult {
       TaskListResult._(isSuccess: false, errorMessage: message);
 }
 
+/// 多日期任务列表查询结果（dataByDate：日期字符串 -> 当日任务结果）
+class TaskListByDatesResult {
+  final bool isSuccess;
+  final Map<String, TaskListResult> dataByDate;
+  final String? errorMessage;
+
+  TaskListByDatesResult._({
+    required this.isSuccess,
+    this.dataByDate = const {},
+    this.errorMessage,
+  });
+
+  factory TaskListByDatesResult.success(Map<String, TaskListResult> dataByDate) =>
+      TaskListByDatesResult._(isSuccess: true, dataByDate: dataByDate);
+
+  factory TaskListByDatesResult.failure(String message) =>
+      TaskListByDatesResult._(isSuccess: false, errorMessage: message);
+}
+
 /// 任务操作结果
 class TaskResult {
   final bool isSuccess;
@@ -332,6 +351,73 @@ class TaskService {
       }
     } else {
       return TaskListResult.failure(response.message);
+    }
+  }
+
+  /// 批量查询多日期任务列表
+  /// GET /api/v1/tasks?dates=YYYY-MM-DD,YYYY-MM-DD,...
+  Future<TaskListByDatesResult> fetchTasksByDates(
+    List<DateTime> dates, {
+    bool showCompleted = true,
+  }) async {
+    if (dates.isEmpty) {
+      return TaskListByDatesResult.success({});
+    }
+    if (dates.length == 1) {
+      final single = await fetchTasksByDate(dates.first, showCompleted: showCompleted);
+      if (single.isSuccess) {
+        return TaskListByDatesResult.success({
+          _formatDate(dates.first): single,
+        });
+      }
+      return TaskListByDatesResult.failure(single.errorMessage ?? tr('error_server'));
+    }
+
+    final datesStr = dates.map(_formatDate).toList();
+    final response = await ApiClient.instance.get<Map<String, dynamic>>(
+      '/tasks',
+      queryParams: {
+        'dates': datesStr.join(','),
+        'showCompleted': showCompleted.toString(),
+      },
+      requireAuth: true,
+      fromJsonT: (data) => data as Map<String, dynamic>,
+    );
+
+    if (response.isSuccess && response.data != null) {
+      try {
+        final dataByDateRaw = response.data!['dataByDate'] as Map<String, dynamic>?;
+        if (dataByDateRaw == null) {
+          return TaskListByDatesResult.failure(tr('error_parse'));
+        }
+
+        final dataByDate = <String, TaskListResult>{};
+        for (final entry in dataByDateRaw.entries) {
+          final dateStr = entry.key;
+          final dayData = entry.value as Map<String, dynamic>;
+          final tasksMap = dayData['tasks'] as Map<String, dynamic>? ?? {};
+          final tasks = <Task>[];
+          for (final taskList in tasksMap.values) {
+            for (final taskJson in taskList as List<dynamic>) {
+              tasks.add(Task.fromJson(taskJson as Map<String, dynamic>));
+            }
+          }
+          Map<String, bool>? hasUnchecked;
+          if (dayData['hasUncheckedTasks'] != null) {
+            final raw = dayData['hasUncheckedTasks'] as Map<String, dynamic>;
+            hasUnchecked = raw.map((k, v) => MapEntry(k, v as bool));
+          }
+          dataByDate[dateStr] = TaskListResult.success(
+            tasks: tasks,
+            hasUncheckedTasks: hasUnchecked,
+          );
+        }
+        return TaskListByDatesResult.success(dataByDate);
+      } catch (e) {
+        return TaskListByDatesResult.failure(tr('error_parse'));
+      }
+    } else {
+      return TaskListByDatesResult.failure(response.message);
     }
   }
 
