@@ -25,16 +25,23 @@ class _StatisticsPageState extends State<StatisticsPage> {
   // 基准日期（默认今天）
   DateTime _baseDate = DateTime.now();
 
-  // API 数据
+  // 全量数据（不传 priorities，服务端返回全部）
+  TaskStatsData? _fullStatsData;
+  // 展示数据（全量或按象限过滤后的结果）
   TaskStatsData? _statsData;
   bool _isLoading = false;
 
   // 语言变化监听
   StreamSubscription<AppLanguage>? _languageSubscription;
 
+  // PageView 控制器 —— 用于左右滑动切换周/月
+  late PageController _pageController;
+  bool _isHandlingPageChange = false;
+
   @override
   void initState() {
     super.initState();
+    _pageController = PageController(initialPage: 1);
     _languageSubscription = LocaleService.instance.languageStream.listen((_) {
       setState(() {});
     });
@@ -43,46 +50,200 @@ class _StatisticsPageState extends State<StatisticsPage> {
 
   @override
   void dispose() {
+    _pageController.dispose();
     _languageSubscription?.cancel();
     super.dispose();
   }
 
-  /// 获取统计数据
+  /// 获取统计数据（始终拉取全量，不传 priorities）
   Future<void> _fetchStats() async {
     setState(() => _isLoading = true);
-
-    // 构造 priorities 参数
-    List<String>? priorities;
-    if (_selectedQuadrant != null) {
-      priorities = [_selectedQuadrant!.apiValue];
-    }
 
     final result = await TaskService.instance.fetchTaskStats(
       dimension: _isMonthView ? 'MONTH' : 'WEEK',
       date: _baseDate,
-      priorities: priorities,
+      priorities: null, // 全量数据
     );
 
     if (mounted) {
       setState(() {
         _isLoading = false;
         if (result.isSuccess && result.data != null) {
-          _statsData = result.data;
+          _fullStatsData = result.data;
+          _applyQuadrantFilter();
         }
       });
     }
   }
 
-  /// 切换象限过滤后重新请求
+  /// 基于全量数据本地过滤（切换象限时不请求服务端）
+  void _applyQuadrantFilter() {
+    if (_fullStatsData == null) {
+      _statsData = null;
+      return;
+    }
+    if (_selectedQuadrant == null) {
+      _statsData = _fullStatsData;
+    } else {
+      _statsData = _fullStatsData!.filterByPriority(_selectedQuadrant!);
+    }
+  }
+
+  /// 切换象限过滤：仅本地过滤，不请求服务端
   void _onQuadrantChanged(TaskPriority? quadrant) {
-    setState(() => _selectedQuadrant = quadrant);
-    _fetchStats();
+    setState(() {
+      _selectedQuadrant = quadrant;
+      _applyQuadrantFilter();
+    });
   }
 
   /// 切换周/月视图后重新请求
   void _onScopeChanged(bool isMonth) {
     setState(() => _isMonthView = isMonth);
     _fetchStats();
+    _resetPageController();
+  }
+
+  /// 获取基准日期所在周的周一（ISO 周：周一为第一天）
+  DateTime _getWeekMonday(DateTime date) {
+    final d = DateTime(date.year, date.month, date.day);
+    return d.subtract(Duration(days: d.weekday - 1));
+  }
+
+  /// 获取基准日期所在月的 1 号
+  DateTime _getMonthFirst(DateTime date) {
+    return DateTime(date.year, date.month, 1);
+  }
+
+  /// 是否允许前往下一周/月（不能超过当前周/月）
+  bool get _canGoNext {
+    final now = DateTime.now();
+    if (_isMonthView) {
+      return _baseDate.year < now.year ||
+          (_baseDate.year == now.year && _baseDate.month < now.month);
+    }
+    return _getWeekMonday(_baseDate)
+        .add(const Duration(days: 6))
+        .isBefore(DateTime(now.year, now.month, now.day));
+  }
+
+  /// 上一周/上一月
+  void _goToPrevPeriod() {
+    setState(() {
+      if (_isMonthView) {
+        _baseDate = DateTime(_baseDate.year, _baseDate.month - 1, 1);
+      } else {
+        _baseDate = _baseDate.subtract(const Duration(days: 7));
+      }
+    });
+    _fetchStats();
+  }
+
+  /// 下一周/下一月
+  void _goToNextPeriod() {
+    if (!_canGoNext) return;
+    setState(() {
+      if (_isMonthView) {
+        _baseDate = DateTime(_baseDate.year, _baseDate.month + 1, 1);
+      } else {
+        _baseDate = _baseDate.add(const Duration(days: 7));
+      }
+    });
+    _fetchStats();
+  }
+
+  /// 回到当前周/月
+  void _goToCurrentPeriod() {
+    setState(() {
+      _baseDate = DateTime.now();
+    });
+    _fetchStats();
+    _resetPageController();
+  }
+
+  /// 重置 PageView 到中间页
+  void _resetPageController() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_pageController.hasClients && mounted) {
+        _pageController.jumpToPage(1);
+      }
+    });
+  }
+
+  /// PageView 翻页回调：翻到左页→上一周/月，翻到右页→下一周/月
+  void _onPageChanged(int page) {
+    if (page == 1) return;
+    if (_isHandlingPageChange) return;
+
+    // 向右翻（下一周/月）但已到当前周/月，弹回
+    if (page == 2 && !_canGoNext) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (_pageController.hasClients && mounted) {
+          _pageController.animateToPage(
+            1,
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeOutCubic,
+          );
+        }
+      });
+      return;
+    }
+
+    _isHandlingPageChange = true;
+    AudioService.instance.playPageTurn();
+
+    if (page == 0) {
+      _goToPrevPeriod();
+    } else if (page == 2) {
+      _goToNextPeriod();
+    }
+
+    // 数据加载后重置回中间页
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_pageController.hasClients && mounted) {
+        _pageController.jumpToPage(1);
+      }
+      _isHandlingPageChange = false;
+    });
+  }
+
+  /// 是否正在查看当前周/月
+  bool get _isViewingCurrentPeriod {
+    final now = DateTime.now();
+    if (_isMonthView) {
+      return _baseDate.year == now.year && _baseDate.month == now.month;
+    }
+    final weekMon = _getWeekMonday(_baseDate);
+    final weekSun = weekMon.add(const Duration(days: 6));
+    final today = DateTime(now.year, now.month, now.day);
+    return !today.isBefore(weekMon) && !today.isAfter(weekSun);
+  }
+
+  /// 格式化日期范围用于显示
+  String _formatPeriodRange() {
+    if (_statsData != null) {
+      return '${_formatShortDate(_statsData!.startDate)} - ${_formatShortDate(_statsData!.endDate)}';
+    }
+    if (_isMonthView) {
+      final first = _getMonthFirst(_baseDate);
+      final last = DateTime(_baseDate.year, _baseDate.month + 1, 0);
+      return '${_formatShortDate(_dateToYmd(first))} - ${_formatShortDate(_dateToYmd(last))}';
+    }
+    final mon = _getWeekMonday(_baseDate);
+    final sun = mon.add(const Duration(days: 6));
+    return '${_formatShortDate(_dateToYmd(mon))} - ${_formatShortDate(_dateToYmd(sun))}';
+  }
+
+  String _dateToYmd(DateTime d) =>
+      '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+
+  String _formatShortDate(String ymd) {
+    try {
+      final d = DateTime.parse(ymd);
+      return '${d.month.toString().padLeft(2, '0')}/${d.day.toString().padLeft(2, '0')}';
+    } catch (_) {
+      return ymd;
+    }
   }
 
   @override
@@ -94,8 +255,10 @@ class _StatisticsPageState extends State<StatisticsPage> {
           children: [
             // 过滤器与切换器
             _buildFilterAndScope(),
+            // 周/月切换导航
+            _buildPeriodNavigation(),
 
-            // 内容区域
+            // 内容区域：PageView 实现左右滑动切换周/月
             Expanded(
               child: _isLoading && _statsData == null
                   ? const Center(child: CircularProgressIndicator())
@@ -109,27 +272,49 @@ class _StatisticsPageState extends State<StatisticsPage> {
                             ),
                           ),
                         )
-                      : RefreshIndicator(
-                          onRefresh: _fetchStats,
-                          color: AppColors.primary,
-                          child: SingleChildScrollView(
-                            physics: const AlwaysScrollableScrollPhysics(),
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 20,
-                              vertical: 8,
+                      : PageView(
+                          controller: _pageController,
+                          onPageChanged: _onPageChanged,
+                          children: [
+                            // 左页（上一周/月）占位，显示当前数据的半透明版
+                            Opacity(
+                              opacity: 0.4,
+                              child: _buildStatsContent(),
                             ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                _buildChartCard(),
-                                const SizedBox(height: 20),
-                                _buildTaskLists(),
-                                const SizedBox(height: 16),
-                              ],
+                            // 中间页（当前周/月）
+                            _buildStatsContent(),
+                            // 右页（下一周/月）占位
+                            Opacity(
+                              opacity: 0.4,
+                              child: _buildStatsContent(),
                             ),
-                          ),
+                          ],
                         ),
             ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 构建统计内容（图表 + 任务列表），供 PageView 各页使用
+  Widget _buildStatsContent() {
+    return RefreshIndicator(
+      onRefresh: _fetchStats,
+      color: AppColors.primary,
+      child: SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.symmetric(
+          horizontal: 20,
+          vertical: 8,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildChartCard(),
+            const SizedBox(height: 20),
+            _buildTaskLists(),
+            const SizedBox(height: 16),
           ],
         ),
       ),
@@ -146,6 +331,85 @@ class _StatisticsPageState extends State<StatisticsPage> {
         children: [
           _buildQuadrantSelector(),
           _buildScopeToggle(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPeriodNavigation() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+      child: Row(
+        children: [
+          GestureDetector(
+            onTap: () {
+              AudioService.instance.playButton();
+              _goToPrevPeriod();
+            },
+            child: Container(
+              width: 32,
+              height: 32,
+              decoration: BoxDecoration(
+                color: AppColors.cardBackground,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: AppColors.border),
+              ),
+              child: const Icon(Icons.chevron_left, size: 20, color: AppColors.textPrimary),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              _formatPeriodRange(),
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: AppColors.textPrimary,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ),
+          const SizedBox(width: 12),
+          GestureDetector(
+            onTap: () {
+              AudioService.instance.playButton();
+              _goToNextPeriod();
+            },
+            child: Container(
+              width: 32,
+              height: 32,
+              decoration: BoxDecoration(
+                color: AppColors.cardBackground,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: AppColors.border),
+              ),
+              child: const Icon(Icons.chevron_right, size: 20, color: AppColors.textPrimary),
+            ),
+          ),
+          if (!_isViewingCurrentPeriod) ...[
+            const SizedBox(width: 8),
+            GestureDetector(
+              onTap: () {
+                AudioService.instance.playButton();
+                _goToCurrentPeriod();
+              },
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  tr('back_to_today'),
+                  style: const TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.primary,
+                  ),
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -442,11 +706,24 @@ class _StatisticsPageState extends State<StatisticsPage> {
 
           const SizedBox(height: 16),
 
-          // X 轴标签
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: _buildXAxisLabels(),
-          ),
+          // X 轴标签（月视图标签较多时易溢出，用 FittedBox 缩放适配）
+          if (stats.chartData.isNotEmpty)
+            LayoutBuilder(
+              builder: (context, constraints) {
+                return SizedBox(
+                  width: constraints.maxWidth,
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: _buildXAxisLabels(),
+                    ),
+                  ),
+                );
+              },
+            ),
         ],
       ),
     );

@@ -1,14 +1,43 @@
 import 'package:flutter/material.dart';
 import '../../models/task.dart';
 import '../../theme/app_colors.dart';
-import '../../services/audio_service.dart';
 import '../../services/locale_service.dart';
 import 'priority_section.dart';
+
+/// 四象限标题（固定，不参与滑动动画）
+Widget buildEisenhowerMatrixTitle() {
+  return Padding(
+    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+    child: Row(
+      children: [
+        Container(
+          width: 6,
+          height: 6,
+          decoration: const BoxDecoration(
+            color: AppColors.primary,
+            shape: BoxShape.circle,
+          ),
+        ),
+        const SizedBox(width: 8),
+        Text(
+          tr('eisenhower_matrix'),
+          style: const TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w700,
+            color: AppColors.textPrimary,
+            letterSpacing: 1.2,
+          ),
+        ),
+      ],
+    ),
+  );
+}
 
 /// Eisenhower Matrix Component
 class EisenhowerMatrix extends StatelessWidget {
   final List<Task> tasks;
   final bool showCompleted;
+  final bool includeTitle;
   final ValueChanged<Task>? onTaskTap;
   final ValueChanged<Task>? onToggleTaskComplete;
   final void Function(Task, SubTask)? onToggleSubTaskComplete;
@@ -20,6 +49,7 @@ class EisenhowerMatrix extends StatelessWidget {
     super.key,
     required this.tasks,
     this.showCompleted = true,
+    this.includeTitle = true,
     this.onTaskTap,
     this.onToggleTaskComplete,
     this.onToggleSubTaskComplete,
@@ -39,32 +69,7 @@ class EisenhowerMatrix extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // 标题
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          child: Row(
-            children: [
-              Container(
-                width: 6,
-                height: 6,
-                decoration: const BoxDecoration(
-                  color: AppColors.primary,
-                  shape: BoxShape.circle,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Text(
-                tr('eisenhower_matrix'),
-                style: const TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.textPrimary,
-                  letterSpacing: 1.2,
-                ),
-              ),
-            ],
-          ),
-        ),
+        if (includeTitle) buildEisenhowerMatrixTitle(),
 
         // 2x2 网格布局
         Padding(

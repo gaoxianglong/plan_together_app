@@ -965,36 +965,9 @@ class _MePageState extends State<MePage> {
     );
   }
 
-  /// Made in China badge widget
-  Widget _buildMadeInChinaBadge() {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        SvgPicture.asset(
-          'assets/images/zh_cn.svg',
-          width: 24,
-          height: 16,
-        ),
-        const SizedBox(width: 8),
-        Text(
-          tr('made_in_china'),
-          style: const TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.w500,
-            color: AppColors.textSecondary,
-            letterSpacing: 0.5,
-          ),
-        ),
-      ],
-    );
-  }
-
   Widget _buildHeader() {
     return Column(
       children: [
-        // Made in China badge
-        _buildMadeInChinaBadge(),
-        const SizedBox(height: 20),
         // Avatar (clickable)
         GestureDetector(
           onTap: _showAvatarSelection,

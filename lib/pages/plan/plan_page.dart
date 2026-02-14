@@ -9,6 +9,7 @@ import '../../widgets/common/celebration_overlay.dart';
 import '../../widgets/task/add_task_sheet.dart';
 import '../../widgets/task/update_task_sheet.dart';
 import '../../widgets/task/eisenhower_matrix.dart';
+import '../../widgets/task/swipeable_matrix_area.dart';
 import '../../services/quote_service.dart';
 import '../../services/celebration_service.dart';
 import '../../services/audio_service.dart';
@@ -108,6 +109,8 @@ class PlanPageState extends State<PlanPage> {
 
   // 当前日期的任务列表（从 API 获取）
   List<Task> _tasks = [];
+  List<Task> _prevDayTasks = [];
+  List<Task> _nextDayTasks = [];
   bool _isLoading = false;
 
   bool _isSameDay(DateTime a, DateTime b) {
@@ -123,7 +126,8 @@ class PlanPageState extends State<PlanPage> {
 
   Map<DateTime, List<int>> get _taskIndicators {
     final indicators = <DateTime, List<int>>{};
-    for (final task in _tasks) {
+    final allTasks = [..._tasks, ..._prevDayTasks, ..._nextDayTasks];
+    for (final task in allTasks) {
       if (!task.isCompleted) {
         final normalizedDate = DateTime(
           task.date.year,
@@ -138,7 +142,6 @@ class PlanPageState extends State<PlanPage> {
         }
       }
     }
-    // Sort by priority
     for (final entry in indicators.entries) {
       entry.value.sort();
     }
@@ -152,6 +155,15 @@ class PlanPageState extends State<PlanPage> {
     _fetchTasks();
   }
 
+  /// 滑动切换日期后回调（由 SwipeableMatrixArea 触发）
+  void _handleMatrixDateChanged(DateTime newDate) {
+    if (_isSameDay(newDate, _selectedDate)) return; // 避免重复触发导致多次请求
+    setState(() {
+      _selectedDate = newDate;
+    });
+    _fetchTasks();
+  }
+
   void _handleReturnToToday() {
     AudioService.instance.playPageTurn();
     setState(() {
@@ -160,27 +172,31 @@ class PlanPageState extends State<PlanPage> {
     _fetchTasks();
   }
 
-  /// 从 API 获取当前日期的任务列表
+  /// 从 API 获取当前日及相邻日期的任务列表（用于滑动预览）
   Future<void> _fetchTasks() async {
     setState(() {
       _isLoading = true;
     });
 
-    final result = await TaskService.instance.fetchTasksByDate(
-      _selectedDate,
-      showCompleted: _showCompleted,
-    );
+    final prevDate = _selectedDate.subtract(const Duration(days: 1));
+    final nextDate = _selectedDate.add(const Duration(days: 1));
+
+    final results = await Future.wait([
+      TaskService.instance.fetchTasksByDate(_selectedDate, showCompleted: _showCompleted),
+      TaskService.instance.fetchTasksByDate(prevDate, showCompleted: _showCompleted),
+      TaskService.instance.fetchTasksByDate(nextDate, showCompleted: _showCompleted),
+    ]);
 
     if (mounted) {
       setState(() {
         _isLoading = false;
-        if (result.isSuccess) {
-          _tasks = result.tasks;
-        }
+        if (results[0].isSuccess) _tasks = results[0].tasks;
+        if (results[1].isSuccess) _prevDayTasks = results[1].tasks;
+        if (results[2].isSuccess) _nextDayTasks = results[2].tasks;
       });
 
-      if (!result.isSuccess) {
-        _showError(result.errorMessage ?? tr('error_server'));
+      if (!results[0].isSuccess) {
+        _showError(results[0].errorMessage ?? tr('error_server'));
       }
     }
   }
@@ -466,24 +482,27 @@ class PlanPageState extends State<PlanPage> {
 
                     SizedBox(height: _isToday(_selectedDate) ? 10 : 2),
 
-                    // Eisenhower Matrix（加载时显示 loading 指示器）
-                    Stack(
+                    // Eisenhower Matrix（实时跟随手指滑动、相邻日期预览、50% 阈值翻页/回弹）
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        EisenhowerMatrix(
-                          tasks: _tasksForSelectedDate,
+                        // 标题固定，不参与滑动
+                        buildEisenhowerMatrixTitle(),
+                        // 可滑动四象限区域
+                        SwipeableMatrixArea(
+                          currentDate: _selectedDate,
+                          currentTasks: _tasksForSelectedDate,
+                          prevDayTasks: _prevDayTasks,
+                          nextDayTasks: _nextDayTasks,
                           showCompleted: _showCompleted,
+                          isLoading: _isLoading,
                           onTaskTap: _handleTaskTap,
                           onToggleTaskComplete: _handleToggleTaskComplete,
                           onDeleteTask: _handleDeleteTask,
                           onQuadrantTap: (priority) =>
                               handleAddTask(priority: priority),
+                          onDateChanged: _handleMatrixDateChanged,
                         ),
-                        if (_isLoading && _tasks.isEmpty)
-                          const Positioned.fill(
-                            child: Center(
-                              child: CircularProgressIndicator(),
-                            ),
-                          ),
                       ],
                     ),
 

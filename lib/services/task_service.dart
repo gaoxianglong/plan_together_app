@@ -125,6 +125,91 @@ class TaskStatsData {
           [],
     );
   }
+
+  /// 按优先级本地过滤，返回新的 TaskStatsData（不请求服务端）
+  TaskStatsData filterByPriority(TaskPriority priority) {
+    final filteredCompleted =
+        completedTasks.where((t) => t.priority == priority).toList();
+    final filteredIncomplete =
+        incompleteTasks.where((t) => t.priority == priority).toList();
+    final allFiltered = [...filteredCompleted, ...filteredIncomplete];
+
+    final newChartData = _computeChartDataFromTasks(
+      allFiltered,
+      chartData,
+      dimension,
+      startDate,
+    );
+
+    final totalCompleted = filteredCompleted.length;
+    final totalTasks = totalCompleted + filteredIncomplete.length;
+    final totalCompletionRate =
+        totalTasks > 0 ? (totalCompleted / totalTasks * 100) : 0.0;
+
+    return TaskStatsData(
+      dimension: dimension,
+      startDate: startDate,
+      endDate: endDate,
+      totalCompleted: totalCompleted,
+      totalTasks: totalTasks,
+      totalCompletionRate: totalCompletionRate,
+      chartData: newChartData,
+      completedTasks: filteredCompleted,
+      incompleteTasks: filteredIncomplete,
+    );
+  }
+
+  /// 从任务列表重算 chartData
+  static List<ChartDataPoint> _computeChartDataFromTasks(
+    List<Task> tasks,
+    List<ChartDataPoint> originalLabels,
+    String dimension,
+    String startDateStr,
+  ) {
+    if (originalLabels.isEmpty) return [];
+
+    final startDate = DateTime.parse(startDateStr);
+
+    return originalLabels.asMap().entries.map((entry) {
+      final index = entry.key;
+      final label = entry.value.label;
+
+      List<Task> labelTasks;
+      if (dimension == 'WEEK') {
+        // 周维度：label 为 YYYY-MM-DD
+        labelTasks = tasks.where((t) {
+          final d = t.date;
+          final dateStr =
+              '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+          return dateStr == label;
+        }).toList();
+      } else {
+        // 月维度：label 为 "第N周"
+        final weekMatch = RegExp(r'(\d+)').firstMatch(label);
+        final weekIndex = weekMatch != null ? int.parse(weekMatch.group(1)!) - 1 : index;
+        final weekStart = startDate.add(Duration(days: weekIndex * 7));
+        final weekEnd = weekStart.add(const Duration(days: 6));
+
+        labelTasks = tasks.where((t) {
+          final d = DateTime(t.date.year, t.date.month, t.date.day);
+          return !d.isBefore(weekStart) && !d.isAfter(weekEnd);
+        }).toList();
+      }
+
+      final completed = labelTasks.where((t) => t.isCompleted).length;
+      final incomplete = labelTasks.length - completed;
+      final total = labelTasks.length;
+      final rate = total > 0 ? (completed / total * 100) : 0.0;
+
+      return ChartDataPoint(
+        label: label,
+        completed: completed,
+        incomplete: incomplete,
+        total: total,
+        completionRate: rate,
+      );
+    }).toList();
+  }
 }
 
 /// 任务统计查询结果
