@@ -76,9 +76,13 @@ class _SwipeableMatrixAreaState extends State<SwipeableMatrixArea> {
     _isHandlingPageChange = true;
     AudioService.instance.playPageTurn();
     if (page == 0) {
-      widget.onDateChanged?.call(widget.currentDate.subtract(const Duration(days: 1)));
+      widget.onDateChanged?.call(
+        widget.currentDate.subtract(const Duration(days: 1)),
+      );
     } else if (page == 2) {
-      widget.onDateChanged?.call(widget.currentDate.add(const Duration(days: 1)));
+      widget.onDateChanged?.call(
+        widget.currentDate.add(const Duration(days: 1)),
+      );
     }
     // 父组件 rebuild 后，重置回中间页，保证可以继续滑动
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -106,8 +110,8 @@ class _SwipeableMatrixAreaState extends State<SwipeableMatrixArea> {
   }
 
   double _estimateMatrixHeight() {
-    // 四象限 2x2 布局估算高度：2 行 * 约 160 + padding
-    return 360;
+    // 四象限 2x2 布局：2 行 * 160 + 行间距 8，避免底部多余空白
+    return 340;
   }
 
   Widget _buildPage(List<Task> tasks, bool isPreview) {
@@ -120,7 +124,9 @@ class _SwipeableMatrixAreaState extends State<SwipeableMatrixArea> {
             showCompleted: widget.showCompleted,
             includeTitle: false,
             onTaskTap: isPreview ? null : widget.onTaskTap,
-            onToggleTaskComplete: isPreview ? null : widget.onToggleTaskComplete,
+            onToggleTaskComplete: isPreview
+                ? null
+                : widget.onToggleTaskComplete,
             onDeleteTask: isPreview ? null : widget.onDeleteTask,
             onQuadrantTap: isPreview ? null : widget.onQuadrantTap,
           ),

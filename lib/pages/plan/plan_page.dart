@@ -285,8 +285,9 @@ class PlanPageState extends State<PlanPage> {
   Future<void> _handleToggleTaskComplete(Task task) async {
     final wasAllCompleted = _areAllTodayTasksCompleted();
     final newCompleted = !task.isCompleted;
-    final newStatus =
-        newCompleted ? TaskStatus.completed : TaskStatus.incomplete;
+    final newStatus = newCompleted
+        ? TaskStatus.completed
+        : TaskStatus.incomplete;
     final now = DateTime.now();
 
     // 乐观更新：立即更新 UI
@@ -295,10 +296,12 @@ class PlanPageState extends State<PlanPage> {
       if (index != -1) {
         final currentTask = _tasks[index];
         final updatedSubtasks = currentTask.subTasks
-            .map((s) => s.copyWith(
-                  status: newStatus,
-                  completedAt: newCompleted ? now : null,
-                ))
+            .map(
+              (s) => s.copyWith(
+                status: newStatus,
+                completedAt: newCompleted ? now : null,
+              ),
+            )
             .toList();
         _tasks[index] = currentTask.copyWith(
           status: newStatus,
@@ -449,7 +452,6 @@ class PlanPageState extends State<PlanPage> {
     }
   }
 
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -513,7 +515,7 @@ class PlanPageState extends State<PlanPage> {
                       ],
                     ),
 
-                    const SizedBox(height: 10),
+                    const SizedBox(height: 2),
 
                     // Motivational Quote (Dynamic)
                     QuoteCard(quote: _currentQuote),

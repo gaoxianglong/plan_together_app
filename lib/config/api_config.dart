@@ -6,10 +6,10 @@ class ApiConfig {
   /// API Base URL
   /// 开发环境：http://localhost:8080
   /// 生产环境：https://api.maidenplan.com (待配置)
-  static const String baseUrl = 'http://localhost:8080';
+  static const String baseUrl = 'http://127.0.0.1:8080';
 
   /// API 版本前缀
-  static const String apiVersion = '/api/v1';
+  static const String apiVersion = '/plancore/api/v1';
 
   /// 完整的 API 前缀
   static String get apiPrefix => '$baseUrl$apiVersion';
